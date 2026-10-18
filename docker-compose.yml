@@ -1,0 +1,19 @@
+services:
+  photovault:
+    build: ./server
+    image: photovault
+    container_name: photovault
+    restart: unless-stopped
+    ports:
+      - "8420:8420"
+    environment:
+      - TZ=America/Chicago
+      - DB_DIR=/db
+    volumes:
+      # Photos, thumbnails and previews. On budget-pc this is the 2 TB D: drive (set in .env).
+      - ${PHOTOVAULT_DATA:-./data}:/data
+      # The database stays on a Linux volume: SQLite locking is unreliable on Windows drive mounts.
+      - photovault-db:/db
+
+volumes:
+  photovault-db:

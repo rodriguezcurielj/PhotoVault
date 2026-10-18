@@ -1,0 +1,467 @@
+const express = require('express');
+const compression = require('compression');
+const multer = require('multer');
+const archiver = require('archiver');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+const cfg = require('./config');
+const { db, getSetting, setSetting } = require('./db');
+const media = require('./media');
+
+// ---------- password + sessions ----------
+function hashPassword(pw, salt = crypto.randomBytes(16).toString('hex')) {
+  return `${salt}:${crypto.scryptSync(pw, salt, 64).toString('hex')}`;
+}
+function checkPassword(pw) {
+  const stored = getSetting('password');
+  if (!stored) return false;
+  const [salt, hash] = stored.split(':');
+  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(hashPassword(pw, salt).split(':')[1], 'hex'));
+}
+// Carry over the password from the first version of PhotoVault (data/config.json).
+const legacy = path.join(cfg.DATA_DIR, 'config.json');
+if (!getSetting('password') && fs.existsSync(legacy)) {
+  const { salt, hash } = JSON.parse(fs.readFileSync(legacy, 'utf8'));
+  setSetting('password', `${salt}:${hash}`);
+}
+
+function tokenOf(req) {
+  const auth = req.headers.authorization || '';
+  if (auth.startsWith('Bearer ')) return auth.slice(7);
+  const m = (req.headers.cookie || '').match(/(?:^|; )pv_session=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : req.query.token || null;
+}
+function sessionOf(req) {
+  const t = tokenOf(req);
+  return t ? db.prepare('SELECT * FROM sessions WHERE token = ? AND expires_at > ?').get(t, Date.now()) : null;
+}
+function newSession(res, device) {
+  const token = crypto.randomBytes(32).toString('hex');
+  db.prepare('INSERT INTO sessions (token, device, created_at, expires_at) VALUES (?, ?, ?, ?)')
+    .run(token, device || 'browser', Date.now(), Date.now() + cfg.SESSION_DAYS * 864e5);
+  res.setHeader('Set-Cookie', `pv_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${cfg.SESSION_DAYS * 86400}`);
+  return token;
+}
+const requireAuth = (req, res, next) => (sessionOf(req) ? next() : res.status(401).json({ error: 'Not logged in' }));
+
+// Requests arrive through tailscale serve (always 127.0.0.1), so this is effectively a global limit:
+// 10 wrong passwords per 15 minutes, which makes guessing even a short PIN impractical.
+const failures = [];
+const recentFailures = () => { while (failures.length && failures[0] < Date.now() - 15 * 60e3) failures.shift(); return failures.length; };
+
+// ---------- helpers ----------
+const now = () => Date.now();
+function toJson(a) {
+  return {
+    id: a.id, type: a.type, name: a.original_name, mime: a.mime, size: a.size, checksum: a.checksum,
+    takenAt: a.taken_at, uploadedAt: a.uploaded_at, updatedAt: a.updated_at,
+    width: a.width, height: a.height, duration: a.duration,
+    lat: a.lat, lon: a.lon, city: a.city, region: a.region, country: a.country,
+    make: a.make, model: a.model, favorite: !!a.favorite, archived: !!a.archived, locked: !!a.locked,
+    trashedAt: a.trashed_at, description: a.description, deviceId: a.device_id, deviceAsset: a.device_asset,
+  };
+}
+const ids = v => [].concat(v || []).map(Number).filter(Number.isInteger);
+const getAsset = id => db.prepare('SELECT * FROM assets WHERE id = ?').get(Number(id));
+function placeName(a) { return [a.city, a.region, a.country].filter(Boolean).join(', '); }
+
+function purgeAsset(a) {
+  media.removeFiles(a);
+  db.prepare('DELETE FROM assets WHERE id = ?').run(a.id);
+  db.prepare('INSERT OR REPLACE INTO deleted (id, deleted_at) VALUES (?, ?)').run(a.id, now());
+}
+function emptyOldTrash() {
+  const cutoff = now() - cfg.TRASH_DAYS * 864e5;
+  for (const a of db.prepare('SELECT * FROM assets WHERE trashed_at IS NOT NULL AND trashed_at < ?').all(cutoff)) purgeAsset(a);
+}
+
+// ---------- app ----------
+const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', 'loopback');
+app.use(compression());
+app.use(express.json({ limit: '2mb' }));
+app.use((req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'same-origin'); next(); });
+app.use(express.static(path.join(__dirname, '..', 'public'), { index: 'index.html' }));
+
+app.get('/api/health', (req, res) => res.json({ ok: true, name: 'PhotoVault', version: 2 }));
+app.get('/api/status', (req, res) => res.json({ setup: !!getSetting('password'), authed: !!sessionOf(req) }));
+
+app.post('/api/setup', (req, res) => {
+  if (getSetting('password')) return res.status(400).json({ error: 'Already set up' });
+  const pw = String(req.body.password || '');
+  if (pw.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+  setSetting('password', hashPassword(pw));
+  res.json({ ok: true, token: newSession(res, req.body.device) });
+});
+
+app.post('/api/login', async (req, res) => {
+  if (recentFailures() >= 10) return res.status(429).json({ error: 'Too many wrong tries. Wait 15 minutes.' });
+  if (checkPassword(String(req.body.password || ''))) return res.json({ ok: true, token: newSession(res, req.body.device) });
+  failures.push(now());
+  await new Promise(r => setTimeout(r, 800));
+  res.status(401).json({ error: 'Wrong password' });
+});
+
+app.post('/api/logout', (req, res) => {
+  const t = tokenOf(req);
+  if (t) db.prepare('DELETE FROM sessions WHERE token = ?').run(t);
+  res.setHeader('Set-Cookie', 'pv_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+  res.json({ ok: true });
+});
+
+app.post('/api/password', requireAuth, (req, res) => {
+  if (!checkPassword(String(req.body.current || ''))) return res.status(401).json({ error: 'Current password is wrong' });
+  const pw = String(req.body.password || '');
+  if (pw.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+  setSetting('password', hashPassword(pw));
+  res.json({ ok: true });
+});
+
+// Locked folder: needs the password again on every visit, sent as X-Unlock.
+const unlocked = req => checkPassword(String(req.headers['x-unlock'] || ''));
+
+// ----- assets -----
+// Full list (or changes since ?since=ms) so clients can keep a local copy of the timeline.
+app.get('/api/assets', requireAuth, (req, res) => {
+  const since = Number(req.query.since) || 0;
+  const wantLocked = req.query.locked === '1';
+  if (wantLocked && !unlocked(req)) return res.status(403).json({ error: 'Enter your password to open the locked folder' });
+  const rows = db.prepare(`SELECT * FROM assets WHERE updated_at > ? AND locked = ? ORDER BY taken_at DESC`).all(since, wantLocked ? 1 : 0);
+  const deleted = since ? db.prepare('SELECT id FROM deleted WHERE deleted_at > ?').all(since).map(r => r.id) : [];
+  // Items moved into the locked folder count as deleted for normal views.
+  if (since && !wantLocked) deleted.push(...db.prepare('SELECT id FROM assets WHERE locked = 1 AND updated_at > ?').all(since).map(r => r.id));
+  res.json({ now: now(), assets: rows.map(toJson), deleted });
+});
+
+app.get('/api/assets/:id', requireAuth, (req, res) => {
+  const a = getAsset(req.params.id);
+  if (!a || (a.locked && !unlocked(req))) return res.status(404).json({ error: 'Not found' });
+  const albums = db.prepare('SELECT al.id, al.name FROM album_assets aa JOIN albums al ON al.id = aa.album_id WHERE aa.asset_id = ?').all(a.id);
+  res.json({ ...toJson(a), place: placeName(a), albums });
+});
+
+app.patch('/api/assets/:id', requireAuth, (req, res) => {
+  const a = getAsset(req.params.id);
+  if (!a) return res.status(404).json({ error: 'Not found' });
+  const b = req.body;
+  const set = {
+    favorite: b.favorite != null ? (b.favorite ? 1 : 0) : a.favorite,
+    archived: b.archived != null ? (b.archived ? 1 : 0) : a.archived,
+    description: b.description !== undefined ? String(b.description || '').slice(0, 2000) || null : a.description,
+    taken_at: Number(b.takenAt) > 0 ? Number(b.takenAt) : a.taken_at,
+  };
+  db.prepare('UPDATE assets SET favorite = ?, archived = ?, description = ?, taken_at = ?, updated_at = ? WHERE id = ?')
+    .run(set.favorite, set.archived, set.description, set.taken_at, now(), a.id);
+  res.json(toJson(getAsset(a.id)));
+});
+
+// Bulk actions on many items at once.
+app.post('/api/assets/bulk', requireAuth, (req, res) => {
+  const list = ids(req.body.ids);
+  const action = String(req.body.action || '');
+  if (['lock', 'unlock'].includes(action) && !unlocked(req)) return res.status(403).json({ error: 'Enter your password' });
+  const t = now();
+  const stmt = {
+    favorite: 'UPDATE assets SET favorite = 1, updated_at = ? WHERE id = ?',
+    unfavorite: 'UPDATE assets SET favorite = 0, updated_at = ? WHERE id = ?',
+    archive: 'UPDATE assets SET archived = 1, updated_at = ? WHERE id = ?',
+    unarchive: 'UPDATE assets SET archived = 0, updated_at = ? WHERE id = ?',
+    trash: `UPDATE assets SET trashed_at = ${t}, updated_at = ? WHERE id = ?`,
+    restore: 'UPDATE assets SET trashed_at = NULL, updated_at = ? WHERE id = ?',
+    lock: 'UPDATE assets SET locked = 1, updated_at = ? WHERE id = ?',
+    unlock: 'UPDATE assets SET locked = 0, updated_at = ? WHERE id = ?',
+  }[action];
+  if (stmt) {
+    const q = db.prepare(stmt);
+    for (const id of list) q.run(t, id);
+  } else if (action === 'delete') {
+    for (const id of list) { const a = getAsset(id); if (a && a.trashed_at) purgeAsset(a); }
+  } else if (action === 'setDate') {
+    const shift = Number(req.body.shiftMs) || 0;
+    const q = db.prepare('UPDATE assets SET taken_at = taken_at + ?, updated_at = ? WHERE id = ?');
+    for (const id of list) q.run(shift, t, id);
+  } else {
+    return res.status(400).json({ error: 'Unknown action' });
+  }
+  res.json({ ok: true, count: list.length });
+});
+
+app.post('/api/trash/empty', requireAuth, (req, res) => {
+  const rows = db.prepare('SELECT * FROM assets WHERE trashed_at IS NOT NULL').all();
+  rows.forEach(purgeAsset);
+  res.json({ ok: true, count: rows.length });
+});
+
+// Phones send checksums first and only upload what the server doesn't have.
+app.post('/api/assets/check', requireAuth, (req, res) => {
+  const q = db.prepare('SELECT id FROM assets WHERE checksum = ?');
+  const result = {};
+  for (const c of [].concat(req.body.checksums || []).slice(0, 5000)) { const r = q.get(String(c)); if (r) result[c] = r.id; }
+  res.json({ existing: result });
+});
+
+const upload = multer({ dest: cfg.UPLOAD_TMP, limits: { fileSize: 8 * 1024 ** 3 } });
+app.post('/api/upload', requireAuth, upload.array('files', 200), async (req, res) => {
+  const b = req.body;
+  const pick = (field, i) => [].concat(b[field] ?? [])[i];
+  const results = [];
+  for (const [i, f] of (req.files || []).entries()) {
+    if (!media.isMedia(f.originalname)) { fs.rmSync(f.path, { force: true }); results.push({ name: f.originalname, error: 'Not a photo or video' }); continue; }
+    try {
+      const { asset, duplicate } = await media.ingest(f.path, {
+        originalName: f.originalname, lastModified: pick('lastModified', i), deviceId: b.deviceId,
+        deviceAsset: pick('deviceAsset', i), editedFrom: Number(b.editedFrom) || null,
+      });
+      if (b.albumId) db.prepare('INSERT OR IGNORE INTO album_assets (album_id, asset_id, added_at) SELECT ?, id, ? FROM assets WHERE id = ?').run(Number(b.albumId), now(), asset.id);
+      results.push({ name: f.originalname, id: asset.id, duplicate, asset: toJson(asset) });
+    } catch (e) {
+      fs.rmSync(f.path, { force: true });
+      results.push({ name: f.originalname, error: e.message });
+    }
+  }
+  res.json({ results });
+});
+
+// ----- files -----
+function sendRendition(dir, req, res) {
+  const a = getAsset(req.params.id);
+  if (!a) return res.status(404).end();
+  const file = path.join(dir, `${a.id}.webp`);
+  if (fs.existsSync(file)) return res.sendFile(file, { maxAge: '30d', immutable: true });
+  // No rendition (e.g. undecodable file): fall back to the original for images.
+  if (a.type === 'image') return res.sendFile(path.join(cfg.LIBRARY_DIR, a.file), { maxAge: '30d' });
+  res.status(404).end();
+}
+app.get('/api/assets/:id/thumb', requireAuth, (req, res) => sendRendition(cfg.THUMB_DIR, req, res));
+app.get('/api/assets/:id/preview', requireAuth, (req, res) => sendRendition(cfg.PREVIEW_DIR, req, res));
+app.get('/api/assets/:id/original', requireAuth, (req, res) => {
+  const a = getAsset(req.params.id);
+  if (!a) return res.status(404).end();
+  if (req.query.download) res.attachment(a.original_name);
+  res.sendFile(path.join(cfg.LIBRARY_DIR, a.file), { maxAge: '30d', headers: { 'Content-Type': a.mime } });
+});
+
+function zipAssets(res, list, name) {
+  res.attachment(name);
+  const zip = archiver('zip', { store: true });
+  zip.pipe(res);
+  const used = new Set();
+  for (const a of list) {
+    let n = a.original_name, i = 1;
+    while (used.has(n)) n = `${path.parse(a.original_name).name}_${i++}${path.extname(a.original_name)}`;
+    used.add(n);
+    zip.file(path.join(cfg.LIBRARY_DIR, a.file), { name: n });
+  }
+  zip.finalize();
+}
+app.get('/api/download', requireAuth, (req, res) => {
+  const list = ids(String(req.query.ids || '').split(',')).map(getAsset).filter(Boolean);
+  zipAssets(res, list, `PhotoVault-${new Date().toISOString().slice(0, 10)}.zip`);
+});
+
+// ----- explore -----
+const visible = `trashed_at IS NULL AND locked = 0`;
+
+app.get('/api/memories', requireAuth, (req, res) => {
+  const today = new Date();
+  const groups = [];
+  for (let y = 1; y <= 30; y++) {
+    const center = new Date(today.getFullYear() - y, today.getMonth(), today.getDate()).getTime();
+    const rows = db.prepare(`SELECT * FROM assets WHERE ${visible} AND archived = 0 AND taken_at BETWEEN ? AND ? ORDER BY taken_at`)
+      .all(center - 3 * 864e5, center + 4 * 864e5);
+    if (rows.length) groups.push({ title: y === 1 ? '1 year ago' : `${y} years ago`, year: today.getFullYear() - y, assets: rows.map(toJson) });
+  }
+  // "Recent highlights": favourites from the last 30 days.
+  const recentFav = db.prepare(`SELECT * FROM assets WHERE ${visible} AND favorite = 1 AND taken_at > ? ORDER BY taken_at DESC LIMIT 50`).all(now() - 30 * 864e5);
+  if (recentFav.length) groups.unshift({ title: 'Recent favorites', assets: recentFav.map(toJson) });
+  res.json(groups);
+});
+
+app.get('/api/places', requireAuth, (req, res) => {
+  const rows = db.prepare(`SELECT city, region, country, COUNT(*) AS count, MAX(id) AS cover FROM assets
+    WHERE ${visible} AND city IS NOT NULL GROUP BY city, region, country ORDER BY count DESC`).all();
+  res.json(rows.map(r => ({ ...r, name: r.city, full: placeName(r) })));
+});
+
+app.get('/api/map', requireAuth, (req, res) => {
+  res.json(db.prepare(`SELECT id, lat, lon, taken_at AS takenAt FROM assets WHERE ${visible} AND lat IS NOT NULL ORDER BY taken_at DESC`).all());
+});
+
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+app.get('/api/search', requireAuth, (req, res) => {
+  const words = String(req.query.q || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const rows = db.prepare(`SELECT * FROM assets WHERE ${visible} ORDER BY taken_at DESC`).all();
+  const matches = rows.filter(a => {
+    const d = new Date(a.taken_at);
+    const text = [a.original_name, a.description, a.city, a.region, a.country, a.make, a.model,
+      a.type, a.favorite ? 'favorite favorites' : '', a.archived ? 'archive archived' : '',
+      /screenshot/i.test(a.original_name) ? 'screenshot screenshots' : '', a.type === 'video' ? 'videos' : 'photos photo',
+      /selfie|front/i.test(a.original_name) ? 'selfie selfies' : ''].join(' ').toLowerCase();
+    return words.every(w => {
+      if (/^\d{4}$/.test(w)) return d.getFullYear() === +w;
+      const m = MONTHS.findIndex(n => n.startsWith(w) && w.length >= 3);
+      if (m >= 0 && !text.includes(w)) return d.getMonth() === m;
+      return text.includes(w);
+    });
+  });
+  res.json(matches.slice(0, 2000).map(toJson));
+});
+
+app.get('/api/stats', requireAuth, (req, res) => {
+  const s = db.prepare(`SELECT
+      SUM(type = 'image') AS photos, SUM(type = 'video') AS videos, SUM(size) AS bytes,
+      SUM(trashed_at IS NOT NULL) AS trashed, SUM(favorite) AS favorites FROM assets`).get();
+  let free = null;
+  try { const st = fs.statfsSync(cfg.LIBRARY_DIR); free = st.bavail * st.bsize; } catch { /* not supported */ }
+  res.json({ ...s, freeBytes: free });
+});
+
+// ----- albums -----
+function albumJson(al) {
+  const c = db.prepare(`SELECT COUNT(*) AS n, MAX(a.id) AS last FROM album_assets aa JOIN assets a ON a.id = aa.asset_id WHERE aa.album_id = ? AND a.trashed_at IS NULL AND a.locked = 0`).get(al.id);
+  return { id: al.id, name: al.name, createdAt: al.created_at, updatedAt: al.updated_at, count: c.n, cover: al.cover_id || c.last, shareToken: al.share_token };
+}
+app.get('/api/albums', requireAuth, (req, res) => {
+  res.json(db.prepare('SELECT * FROM albums ORDER BY updated_at DESC').all().map(albumJson));
+});
+app.post('/api/albums', requireAuth, (req, res) => {
+  const name = String(req.body.name || '').trim().slice(0, 200) || 'Untitled album';
+  const { lastInsertRowid } = db.prepare('INSERT INTO albums (name, created_at, updated_at) VALUES (?, ?, ?)').run(name, now(), now());
+  const id = Number(lastInsertRowid);
+  const q = db.prepare('INSERT OR IGNORE INTO album_assets (album_id, asset_id, added_at) SELECT ?, id, ? FROM assets WHERE id = ?');
+  for (const a of ids(req.body.ids)) q.run(id, now(), a);
+  res.json(albumJson(db.prepare('SELECT * FROM albums WHERE id = ?').get(id)));
+});
+const getAlbum = id => db.prepare('SELECT * FROM albums WHERE id = ?').get(Number(id));
+app.get('/api/albums/:id', requireAuth, (req, res) => {
+  const al = getAlbum(req.params.id);
+  if (!al) return res.status(404).json({ error: 'Not found' });
+  const assets = db.prepare(`SELECT a.* FROM album_assets aa JOIN assets a ON a.id = aa.asset_id
+    WHERE aa.album_id = ? AND a.trashed_at IS NULL AND a.locked = 0 ORDER BY a.taken_at DESC`).all(al.id);
+  res.json({ ...albumJson(al), assets: assets.map(toJson) });
+});
+app.patch('/api/albums/:id', requireAuth, (req, res) => {
+  const al = getAlbum(req.params.id);
+  if (!al) return res.status(404).json({ error: 'Not found' });
+  const name = req.body.name != null ? String(req.body.name).trim().slice(0, 200) || al.name : al.name;
+  const cover = req.body.cover !== undefined ? Number(req.body.cover) || null : al.cover_id;
+  db.prepare('UPDATE albums SET name = ?, cover_id = ?, updated_at = ? WHERE id = ?').run(name, cover, now(), al.id);
+  res.json(albumJson(getAlbum(al.id)));
+});
+app.delete('/api/albums/:id', requireAuth, (req, res) => {
+  db.prepare('DELETE FROM albums WHERE id = ?').run(Number(req.params.id));
+  res.json({ ok: true });
+});
+app.post('/api/albums/:id/assets', requireAuth, (req, res) => {
+  const al = getAlbum(req.params.id);
+  if (!al) return res.status(404).json({ error: 'Not found' });
+  const q = db.prepare('INSERT OR IGNORE INTO album_assets (album_id, asset_id, added_at) SELECT ?, id, ? FROM assets WHERE id = ?');
+  for (const a of ids(req.body.ids)) q.run(al.id, now(), a);
+  db.prepare('UPDATE albums SET updated_at = ? WHERE id = ?').run(now(), al.id);
+  res.json(albumJson(getAlbum(al.id)));
+});
+app.post('/api/albums/:id/remove', requireAuth, (req, res) => {
+  const q = db.prepare('DELETE FROM album_assets WHERE album_id = ? AND asset_id = ?');
+  for (const a of ids(req.body.ids)) q.run(Number(req.params.id), a);
+  db.prepare('UPDATE albums SET updated_at = ? WHERE id = ?').run(now(), Number(req.params.id));
+  res.json({ ok: true });
+});
+app.post('/api/albums/:id/share', requireAuth, (req, res) => {
+  const al = getAlbum(req.params.id);
+  if (!al) return res.status(404).json({ error: 'Not found' });
+  const token = req.body.enabled === false ? null : al.share_token || crypto.randomBytes(18).toString('base64url');
+  db.prepare('UPDATE albums SET share_token = ?, updated_at = ? WHERE id = ?').run(token, now(), al.id);
+  res.json({ shareToken: token });
+});
+
+// ----- public shared albums (no login; only items in that album) -----
+function sharedAlbum(req, res) {
+  const al = db.prepare('SELECT * FROM albums WHERE share_token = ?').get(String(req.params.token));
+  if (!al) { res.status(404).json({ error: 'This link no longer works' }); return null; }
+  return al;
+}
+function sharedAsset(req, res) {
+  const al = sharedAlbum(req, res);
+  if (!al) return null;
+  const a = db.prepare(`SELECT a.* FROM album_assets aa JOIN assets a ON a.id = aa.asset_id
+    WHERE aa.album_id = ? AND a.id = ? AND a.trashed_at IS NULL AND a.locked = 0`).get(al.id, Number(req.params.id));
+  if (!a) { res.status(404).end(); return null; }
+  return a;
+}
+app.get('/s/:token', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'share.html')));
+app.get('/api/share/:token', (req, res) => {
+  const al = sharedAlbum(req, res);
+  if (!al) return;
+  const assets = db.prepare(`SELECT a.* FROM album_assets aa JOIN assets a ON a.id = aa.asset_id
+    WHERE aa.album_id = ? AND a.trashed_at IS NULL AND a.locked = 0 ORDER BY a.taken_at`).all(al.id);
+  res.json({ name: al.name, assets: assets.map(a => ({ id: a.id, type: a.type, takenAt: a.taken_at, width: a.width, height: a.height, name: a.original_name })) });
+});
+for (const [kind, dir] of [['thumb', cfg.THUMB_DIR], ['preview', cfg.PREVIEW_DIR]]) {
+  app.get(`/api/share/:token/${kind}/:id`, (req, res) => {
+    const a = sharedAsset(req, res);
+    if (!a) return;
+    const f = path.join(dir, `${a.id}.webp`);
+    res.sendFile(fs.existsSync(f) ? f : path.join(cfg.LIBRARY_DIR, a.file), { maxAge: '1d' });
+  });
+}
+app.get('/api/share/:token/original/:id', (req, res) => {
+  const a = sharedAsset(req, res);
+  if (!a) return;
+  if (req.query.download) res.attachment(a.original_name);
+  res.sendFile(path.join(cfg.LIBRARY_DIR, a.file), { headers: { 'Content-Type': a.mime } });
+});
+
+// ---------- background jobs ----------
+// Files dropped into data/import are added to the library (handy for bulk-importing old photos).
+let importing = false;
+async function importFolder() {
+  if (importing) return;
+  importing = true;
+  try {
+    const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
+      const p = path.join(dir, e.name);
+      return e.isDirectory() ? walk(p) : [p];
+    });
+    for (const file of walk(cfg.IMPORT_DIR)) {
+      if (!media.isMedia(file)) continue;
+      // Skip files still being copied in.
+      if (Date.now() - fs.statSync(file).mtimeMs < 60e3 && Date.now() - fs.statSync(file).ctimeMs < 60e3) continue;
+      const tmp = path.join(cfg.UPLOAD_TMP, crypto.randomBytes(8).toString('hex'));
+      fs.copyFileSync(file, tmp);
+      try {
+        await media.ingest(tmp, { originalName: path.basename(file), lastModified: fs.statSync(file).mtimeMs });
+        fs.rmSync(file);
+      } catch (e) { console.warn(`import failed for ${file}: ${e.message}`); fs.rmSync(tmp, { force: true }); }
+    }
+  } finally { importing = false; }
+}
+// Make any thumbnails that are missing (e.g. after restoring a backup of library/).
+async function fillRenditions() {
+  for (const a of db.prepare('SELECT * FROM assets').all()) {
+    if (!fs.existsSync(path.join(cfg.THUMB_DIR, `${a.id}.webp`))) {
+      try { await media.makeRenditions(a); } catch { /* undecodable, leave it */ }
+    }
+  }
+}
+// Clear out abandoned partial uploads.
+for (const f of fs.readdirSync(cfg.UPLOAD_TMP)) fs.rmSync(path.join(cfg.UPLOAD_TMP, f), { force: true, recursive: true });
+
+// Daily copy of the database next to the photos, keeping the last 7.
+function backupDb() {
+  const dir = path.join(cfg.DATA_DIR, 'db-backups');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `photovault-${new Date().toISOString().slice(0, 10)}.db`);
+  if (fs.existsSync(file)) return;
+  try { db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`); } catch (e) { console.warn(`db backup failed: ${e.message}`); }
+  fs.readdirSync(dir).sort().slice(0, -7).forEach(f => fs.rmSync(path.join(dir, f), { force: true }));
+}
+
+setInterval(() => { emptyOldTrash(); importFolder(); backupDb(); }, 10 * 60e3);
+backupDb();
+db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now());
+emptyOldTrash();
+importFolder().then(fillRenditions);
+
+app.listen(cfg.PORT, () => console.log(`PhotoVault on http://localhost:${cfg.PORT} (data in ${cfg.DATA_DIR})`));

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shared album</title>
+<style>
+  :root { --bg: #f7f7f5; --text: #1b1c1e; --muted: #6b6d72; --tile: #e9e9e6; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111214; --text: #ecedef; --muted: #9a9ca3; --tile: #25262a; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 22px 16px 10px; max-width: 1400px; margin: 0 auto; display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
+  h1 { margin: 0; font-size: 26px; flex: 1; }
+  .muted { color: var(--muted); }
+  a.btn { color: inherit; text-decoration: none; border: 1px solid var(--muted); border-radius: 999px; padding: 6px 14px; font-size: 14px; }
+  main { max-width: 1400px; margin: 0 auto; padding: 0 16px 40px; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 4px; }
+  @media (max-width: 500px) { main { grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 0 2px 40px; } }
+  .t { aspect-ratio: 1; background: var(--tile); cursor: pointer; position: relative; }
+  .t img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .t b { position: absolute; right: 6px; bottom: 4px; color: #fff; text-shadow: 0 1px 3px #000; font-size: 12px; }
+  #lb { position: fixed; inset: 0; background: #000; display: none; flex-direction: column; z-index: 9; }
+  #lb.on { display: flex; }
+  #lb .bar { display: flex; gap: 8px; padding: 10px; justify-content: flex-end; }
+  #lb .bar a, #lb .bar button { color: #fff; background: rgba(255,255,255,.12); border: 0; border-radius: 999px; padding: 8px 14px; font: inherit; text-decoration: none; cursor: pointer; }
+  #lb .stage { flex: 1; display: grid; place-items: center; min-height: 0; }
+  #lb img, #lb video { max-width: 100%; max-height: calc(100vh - 70px); }
+</style>
+</head>
+<body>
+<header><h1 id="title">Shared album</h1><span class="muted" id="count"></span></header>
+<main id="grid"></main>
+<div id="lb"><div class="bar"><button id="prev">‹</button><button id="next">›</button><a id="dl" download>Download</a><button id="close">✕</button></div><div class="stage" id="stage"></div></div>
+<script>
+const token = location.pathname.split('/').pop();
+const base = `/api/share/${encodeURIComponent(token)}`;
+let items = [], cur = 0;
+const $ = id => document.getElementById(id);
+fetch(base).then(r => r.ok ? r.json() : Promise.reject()).then(d => {
+  items = d.assets;
+  document.title = d.name;
+  $('title').textContent = d.name;
+  $('count').textContent = `${items.length} items`;
+  items.forEach((a, i) => {
+    const t = document.createElement('div');
+    t.className = 't';
+    const img = document.createElement('img');
+    img.loading = 'lazy'; img.src = `${base}/thumb/${a.id}`; img.alt = '';
+    t.append(img);
+    if (a.type === 'video') { const b = document.createElement('b'); b.textContent = '▶'; t.append(b); }
+    t.onclick = () => open(i);
+    $('grid').append(t);
+  });
+}).catch(() => { $('title').textContent = 'This link no longer works'; });
+function open(i) {
+  cur = (i + items.length) % items.length;
+  const a = items[cur];
+  const s = $('stage');
+  s.innerHTML = '';
+  const el = document.createElement(a.type === 'video' ? 'video' : 'img');
+  el.src = a.type === 'video' ? `${base}/original/${a.id}` : `${base}/preview/${a.id}`;
+  if (a.type === 'video') { el.controls = true; el.autoplay = true; }
+  s.append(el);
+  $('dl').href = `${base}/original/${a.id}?download=1`;
+  $('lb').classList.add('on');
+}
+$('close').onclick = () => { $('lb').classList.remove('on'); $('stage').innerHTML = ''; };
+$('prev').onclick = () => open(cur - 1);
+$('next').onclick = () => open(cur + 1);
+addEventListener('keydown', e => {
+  if (!$('lb').classList.contains('on')) return;
+  if (e.key === 'Escape') $('close').click();
+  if (e.key === 'ArrowLeft') open(cur - 1);
+  if (e.key === 'ArrowRight') open(cur + 1);
+});
+</script>
+</body>
+</html>

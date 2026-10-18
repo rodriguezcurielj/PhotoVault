@@ -1,0 +1,79 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+android {
+    namespace 'com.photovault.app'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.photovault.app'
+        minSdk 30
+        targetSdk 36
+        versionCode 1
+        versionName '1.0'
+        // Where the app looks for your PhotoVault server until you change it in Settings.
+        buildConfigField 'String', 'DEFAULT_SERVER', '"https://budget-pc.tail05789d.ts.net:9443"'
+    }
+
+    buildFeatures {
+        compose true
+        buildConfig true
+    }
+
+    // Signed with a key kept on this computer (android/photovault-release.jks, not in git), so
+    // new versions install over old ones. build-apk.ps1 makes the key the first time.
+    signingConfigs {
+        release {
+            def props = new Properties()
+            def f = rootProject.file('keystore.properties')
+            if (f.exists()) {
+                f.withInputStream { props.load(it) }
+                storeFile rootProject.file(props['storeFile'])
+                storePassword props['storePassword']
+                keyAlias props['keyAlias']
+                keyPassword props['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Shrinks the app from ~48 MB to a few MB (mostly unused icons).
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig rootProject.file('keystore.properties').exists() ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+}
+
+dependencies {
+    implementation platform('androidx.compose:compose-bom:2025.05.00')
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.foundation:foundation'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.material:material-icons-extended'
+    implementation 'androidx.activity:activity-compose:1.10.1'
+    implementation 'androidx.core:core-ktx:1.17.0'
+    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.8.7'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7'
+    implementation 'androidx.work:work-runtime-ktx:2.10.0'
+    implementation 'androidx.exifinterface:exifinterface:1.3.7'
+    implementation 'androidx.media3:media3-exoplayer:1.5.1'
+    implementation 'androidx.media3:media3-ui:1.5.1'
+    implementation 'io.coil-kt.coil3:coil-compose:3.1.0'
+    implementation 'io.coil-kt.coil3:coil-video:3.1.0'
+    implementation 'io.coil-kt.coil3:coil-network-okhttp:3.1.0'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+}

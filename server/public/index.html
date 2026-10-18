@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111214">
+<title>PhotoVault</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<section id="auth" class="hidden">
+  <form id="authForm">
+    <div class="logo">PhotoVault</div>
+    <p id="authMsg">Enter your password.</p>
+    <input id="pw" type="password" inputmode="numeric" autocomplete="current-password" placeholder="Password" required>
+    <button class="primary" type="submit" id="authBtn">Log in</button>
+    <div class="error" id="authErr"></div>
+  </form>
+</section>
+
+<div id="app" class="hidden">
+  <aside id="nav">
+    <div class="logo">PhotoVault</div>
+    <a data-view="photos" class="active"><span class="i">▦</span>Photos</a>
+    <a data-view="explore"><span class="i">⌕</span>Explore</a>
+    <a data-view="albums"><span class="i">❐</span>Albums</a>
+    <a data-view="favorites"><span class="i">♥</span>Favorites</a>
+    <a data-view="videos"><span class="i">▶</span>Videos</a>
+    <a data-view="map"><span class="i">⌖</span>Map</a>
+    <hr>
+    <a data-view="archive"><span class="i">⬓</span>Archive</a>
+    <a data-view="locked"><span class="i">🔒</span>Locked folder</a>
+    <a data-view="trash"><span class="i">🗑</span>Trash</a>
+    <div class="spacer"></div>
+    <div class="storage" id="storage"></div>
+    <a id="logoutBtn"><span class="i">⎋</span>Log out</a>
+  </aside>
+
+  <div id="main">
+    <header id="top">
+      <button class="icon only-mobile" id="navBtn" aria-label="Menu">☰</button>
+      <form id="searchForm"><input id="search" type="search" placeholder="Search places, dates, cameras, “videos 2024”…"></form>
+      <button class="primary" id="uploadBtn">Upload</button>
+      <input type="file" id="fileInput" accept="image/*,video/*,.heic,.heif,.dng" multiple hidden>
+    </header>
+
+    <div id="selbar" class="hidden">
+      <button class="icon" id="selClear" aria-label="Clear selection">✕</button>
+      <span id="selCount"></span>
+      <div class="grow"></div>
+      <span id="selActions"></span>
+    </div>
+
+    <div id="content"></div>
+  </div>
+</div>
+
+<div id="drop" class="hidden">Drop photos and videos to upload</div>
+<div id="toast" class="hidden"></div>
+<div id="progress" class="hidden"><div id="progressText"></div><div class="bar"><div id="progressBar"></div></div></div>
+
+<div id="viewer" class="hidden">
+  <div class="vtop">
+    <button class="icon" id="vClose" aria-label="Close">←</button>
+    <div class="grow"></div>
+    <button class="icon" id="vFav" title="Favorite (F)">♡</button>
+    <button class="icon" id="vEdit" title="Edit (E)">✎</button>
+    <button class="icon" id="vInfo" title="Info (I)">ⓘ</button>
+    <button class="icon" id="vDownload" title="Download">⤓</button>
+    <button class="icon" id="vMore" title="More">⋮</button>
+    <button class="icon" id="vDelete" title="Delete (Del)">🗑</button>
+  </div>
+  <div class="vbody">
+    <div class="stage" id="stage"></div>
+    <button class="nav prev" id="vPrev">‹</button>
+    <button class="nav next" id="vNext">›</button>
+    <aside id="info" class="hidden"></aside>
+  </div>
+</div>
+
+<div id="editor" class="hidden">
+  <div class="etop">
+    <button id="eCancel">Cancel</button>
+    <div class="grow"></div>
+    <button id="eReset">Reset</button>
+    <button class="primary" id="eSave">Save copy</button>
+  </div>
+  <div class="ebody"><div class="ecanvas"><canvas id="eCanvas"></canvas><div id="cropBox" class="hidden"></div></div></div>
+  <div class="etools">
+    <div class="tabs"><button data-tab="crop" class="active">Crop</button><button data-tab="adjust">Adjust</button><button data-tab="filters">Filters</button></div>
+    <div class="tab" id="tab-crop">
+      <button id="eRotL">⟲ Rotate</button><button id="eRotR">⟳ Rotate</button><button id="eFlip">⇋ Flip</button>
+      <select id="eAspect"><option value="free">Free crop</option><option value="1">Square</option><option value="1.3333">4:3</option><option value="1.7778">16:9</option><option value="0.8">4:5</option><option value="0.5625">9:16</option></select>
+      <button id="eCropToggle">Crop</button>
+    </div>
+    <div class="tab hidden" id="tab-adjust"></div>
+    <div class="tab hidden" id="tab-filters"></div>
+  </div>
+</div>
+
+<div id="modal" class="hidden"><div class="box" id="modalBox"></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

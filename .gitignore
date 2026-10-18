@@ -1,0 +1,11 @@
+data/
+node_modules/
+.env
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/keystore.properties
+android/*.jks
+PhotoVault.apk
+server/public/PhotoVault.apk
