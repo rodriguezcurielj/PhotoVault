@@ -15,8 +15,9 @@
 <section id="auth" class="hidden">
   <form id="authForm">
     <div class="logo">PhotoVault</div>
-    <p id="authMsg">Enter your password.</p>
-    <input id="pw" type="password" inputmode="numeric" autocomplete="current-password" placeholder="Password" required>
+    <p id="authMsg">Sign in to your photos.</p>
+    <input id="user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Username" required>
+    <input id="pw" type="password" autocomplete="current-password" placeholder="Password" required>
     <button class="primary" type="submit" id="authBtn">Log in</button>
     <div class="error" id="authErr"></div>
   </form>

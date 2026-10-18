@@ -19,6 +19,11 @@ function checkPassword(pw) {
   const [salt, hash] = stored.split(':');
   return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(hashPassword(pw, salt).split(':')[1], 'hex'));
 }
+// The login is a username plus that password (username is not case sensitive).
+const checkLogin = (user, pw) => {
+  const want = getSetting('username');
+  return checkPassword(pw) && (!want || String(user || '').trim().toLowerCase() === want.toLowerCase());
+};
 // Carry over the password from the first version of PhotoVault (data/config.json).
 const legacy = path.join(cfg.DATA_DIR, 'config.json');
 if (!getSetting('password') && fs.existsSync(legacy)) {
@@ -45,10 +50,13 @@ function newSession(res, device) {
 }
 const requireAuth = (req, res, next) => (sessionOf(req) ? next() : res.status(401).json({ error: 'Not logged in' }));
 
-// Requests arrive through tailscale serve (always 127.0.0.1), so this is effectively a global limit:
-// 10 wrong passwords per 15 minutes, which makes guessing even a short PIN impractical.
+// The site is public (Tailscale Funnel), so wrong logins are limited per address (10 per 15 minutes)
+// and overall (100 per 15 minutes).
 const failures = [];
-const recentFailures = () => { while (failures.length && failures[0] < Date.now() - 15 * 60e3) failures.shift(); return failures.length; };
+const recentFailures = ip => {
+  while (failures.length && failures[0].at < Date.now() - 15 * 60e3) failures.shift();
+  return failures.length >= 100 || failures.filter(f => f.ip === ip).length >= 10;
+};
 
 // ---------- helpers ----------
 const now = () => Date.now();
@@ -83,25 +91,38 @@ app.set('trust proxy', 'loopback');
 app.use(compression());
 app.use(express.json({ limit: '2mb' }));
 app.use((req, res, next) => { res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'same-origin'); next(); });
+// The website on GitHub Pages talks to this server with a Bearer token (no cookies).
+const ORIGINS = ['https://rodriguezcurielj.github.io'];
+app.use((req, res, next) => {
+  if (!ORIGINS.includes(req.headers.origin)) return next();
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Unlock');
+  res.setHeader('Access-Control-Max-Age', '86400');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 app.use(express.static(path.join(__dirname, '..', 'public'), { index: 'index.html' }));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, name: 'PhotoVault', version: 2 }));
-app.get('/api/status', (req, res) => res.json({ setup: !!getSetting('password'), authed: !!sessionOf(req) }));
+app.get('/api/status', (req, res) => res.json({ setup: !!getSetting('password'), authed: !!sessionOf(req), username: !!getSetting('username') }));
 
 app.post('/api/setup', (req, res) => {
   if (getSetting('password')) return res.status(400).json({ error: 'Already set up' });
   const pw = String(req.body.password || '');
   if (pw.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+  if (req.body.username) setSetting('username', String(req.body.username).trim());
   setSetting('password', hashPassword(pw));
   res.json({ ok: true, token: newSession(res, req.body.device) });
 });
 
 app.post('/api/login', async (req, res) => {
-  if (recentFailures() >= 10) return res.status(429).json({ error: 'Too many wrong tries. Wait 15 minutes.' });
-  if (checkPassword(String(req.body.password || ''))) return res.json({ ok: true, token: newSession(res, req.body.device) });
-  failures.push(now());
+  if (recentFailures(req.ip)) return res.status(429).json({ error: 'Too many wrong tries. Wait 15 minutes.' });
+  if (checkLogin(req.body.username, String(req.body.password || ''))) return res.json({ ok: true, token: newSession(res, req.body.device) });
+  failures.push({ at: now(), ip: req.ip });
   await new Promise(r => setTimeout(r, 800));
-  res.status(401).json({ error: 'Wrong password' });
+  res.status(401).json({ error: 'Wrong username or password' });
 });
 
 app.post('/api/logout', (req, res) => {

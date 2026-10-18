@@ -53,6 +53,7 @@ import kotlinx.coroutines.launch
 fun LoginScreen() {
     val scope = rememberCoroutineScope()
     var server by remember { mutableStateOf(Repo.prefs.server) }
+    var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -64,11 +65,14 @@ fun LoginScreen() {
         OutlinedTextField(server, { server = it }, label = { Text("Server address") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
         Spacer(Modifier.height(12.dp))
+        OutlinedTextField(username, { username = it }, label = { Text("Username") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
+        Spacer(Modifier.height(12.dp))
         OutlinedTextField(password, { password = it }, label = { Text("Password") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-            visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
+            visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
         if (error != null) Text(error!!, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 10.dp))
         Spacer(Modifier.height(20.dp))
-        Button(enabled = !busy && password.isNotBlank(), modifier = Modifier.fillMaxWidth().height(50.dp), onClick = {
+        Button(enabled = !busy && username.isNotBlank() && password.isNotBlank(), modifier = Modifier.fillMaxWidth().height(50.dp), onClick = {
             busy = true; error = null
             scope.launch {
                 val s = server.trim().trimEnd('/').let { if (it.startsWith("http")) it else "https://$it" }
@@ -77,7 +81,7 @@ fun LoginScreen() {
                     error = problem
                 } else {
                     Repo.prefs.server = s
-                    runCatching { Repo.api.login(password) }
+                    runCatching { Repo.api.login(username, password) }
                         .onSuccess { token ->
                             Repo.prefs.token = token
                             Repo.prefs.lastSync = 0
@@ -89,7 +93,7 @@ fun LoginScreen() {
                 busy = false
             }
         }) { if (busy) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp) else Text("Sign in") }
-        Text("Your phone needs the Tailscale app turned on to reach the server from outside home.", style = MaterialTheme.typography.bodySmall,
+        Text("Works from anywhere — no Tailscale needed.", style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 18.dp))
     }
 }

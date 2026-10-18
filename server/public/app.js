@@ -24,9 +24,16 @@ const state = {
   lockedPw: null,
   locked: [],
 };
-const thumb = a => `/api/assets/${a.id}/thumb?v=${a.updatedAt || 0}`;
-const preview = a => `/api/assets/${a.id}/preview`;
-const original = a => `/api/assets/${a.id}/original`;
+// On GitHub Pages the pages come from github.io and everything else from the PhotoVault server.
+const SERVER = location.hostname.endsWith('github.io') ? 'https://budget-pc.tail05789d.ts.net:8443' : '';
+let token = null;
+try { token = SERVER ? localStorage.getItem('pv_token') : null; } catch {}
+const saveToken = t => { token = SERVER ? t : null; try { t && SERVER ? localStorage.setItem('pv_token', t) : localStorage.removeItem('pv_token'); } catch {} };
+// URL for images, videos and downloads (img tags can't send headers, so the token rides along).
+const src = p => SERVER + p + (token ? (p.includes('?') ? '&' : '?') + 'token=' + token : '');
+const thumb = a => src(`/api/assets/${a.id}/thumb?v=${a.updatedAt || 0}`);
+const preview = a => src(`/api/assets/${a.id}/preview`);
+const original = a => src(`/api/assets/${a.id}/original`);
 const fmtBytes = b => b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
 const fmtDur = s => { s = Math.round(s || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const place = a => [a.city, a.region, a.country].filter(Boolean).join(', ');
@@ -34,7 +41,8 @@ const place = a => [a.city, a.region, a.country].filter(Boolean).join(', ');
 async function api(url, opts = {}) {
   const headers = { ...(opts.body && !(opts.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...(opts.headers || {}) };
   if (state.lockedPw) headers['X-Unlock'] = state.lockedPw;
-  const r = await fetch(url, { ...opts, headers, body: opts.body && !(opts.body instanceof FormData) ? JSON.stringify(opts.body) : opts.body });
+  if (token) headers.Authorization = 'Bearer ' + token;
+  const r = await fetch(SERVER + url, { ...opts, headers, body: opts.body && !(opts.body instanceof FormData) ? JSON.stringify(opts.body) : opts.body });
   if (r.status === 401 && !url.includes('/login')) { showAuth(false); throw new Error('Not logged in'); }
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || `Request failed (${r.status})`);
@@ -52,22 +60,23 @@ function showAuth(needsSetup) {
   setupMode = needsSetup;
   $('app').classList.add('hidden');
   $('auth').classList.remove('hidden');
-  $('authMsg').textContent = needsSetup ? 'Create a password for PhotoVault.' : 'Enter your password.';
-  $('authBtn').textContent = needsSetup ? 'Create password' : 'Log in';
-  $('pw').focus();
+  $('authMsg').textContent = needsSetup ? 'Pick a username and password for PhotoVault.' : 'Sign in to your photos.';
+  $('authBtn').textContent = needsSetup ? 'Create login' : 'Log in';
+  $('user').focus();
 }
 $('authForm').onsubmit = async e => {
   e.preventDefault();
   $('authErr').textContent = '';
   $('authBtn').disabled = true;
   try {
-    await api(setupMode ? '/api/setup' : '/api/login', { method: 'POST', body: { password: $('pw').value, device: 'browser' } });
+    const r = await api(setupMode ? '/api/setup' : '/api/login', { method: 'POST', body: { username: $('user').value, password: $('pw').value, device: 'browser' } });
+    saveToken(r.token);
     $('pw').value = '';
     start();
   } catch (err) { $('authErr').textContent = err.message; }
   $('authBtn').disabled = false;
 };
-$('logoutBtn').onclick = async () => { await api('/api/logout', { method: 'POST' }); state.assets.clear(); showAuth(false); };
+$('logoutBtn').onclick = async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); saveToken(null); state.assets.clear(); showAuth(false); };
 
 // ---------------------------------------------------------------- data
 let lastSync = 0;
@@ -280,7 +289,7 @@ function undoable(fn) {
 }
 function download(ids) {
   if (ids.length === 1) { location.href = original(state.assets.get(ids[0]) || { id: ids[0] }) + '?download=1'; return; }
-  location.href = `/api/download?ids=${ids.join(',')}`;
+  location.href = src(`/api/download?ids=${ids.join(',')}`);
 }
 
 // ---------------------------------------------------------------- modal helpers
@@ -328,7 +337,7 @@ async function pickAlbum(ids) {
       toast(`Created “${al.name}”`); clearSelection();
     }); } }, h('div', { class: 'ph', style: 'display:grid;place-items:center;font-size:22px' }, '＋'), 'New album'),
     albums.map(al => h('div', { class: 'pick', onclick: () => add(al.id, al.name) },
-      al.cover ? h('img', { src: `/api/assets/${al.cover}/thumb` }) : h('div', { class: 'ph' }),
+      al.cover ? h('img', { src: src(`/api/assets/${al.cover}/thumb`) }) : h('div', { class: 'ph' }),
       h('div', {}, h('div', {}, al.name), h('div', { class: 'muted' }, `${al.count} items`)))));
 }
 function adjustDate(ids) {
@@ -392,7 +401,7 @@ async function viewAlbums() {
 }
 function card(icon, title, sub, onclick, coverAsset) {
   return h('div', { class: 'card', onclick },
-    h('div', { class: 'cover' }, coverAsset ? h('img', { src: `/api/assets/${coverAsset.id}/thumb`, loading: 'lazy' }) : icon),
+    h('div', { class: 'cover' }, coverAsset ? h('img', { src: src(`/api/assets/${coverAsset.id}/thumb`), loading: 'lazy' }) : icon),
     h('div', { class: 't' }, title), h('div', { class: 's' }, sub));
 }
 async function viewAlbum(id) {
@@ -400,7 +409,7 @@ async function viewAlbum(id) {
   const c = $('content');
   let al;
   try { al = await api('/api/albums/' + id); } catch { c.append(h('div', { class: 'empty' }, h('strong', {}, 'Album not found'))); return; }
-  const shareUrl = al.shareToken ? `${location.origin}/s/${al.shareToken}` : null;
+  const shareUrl = al.shareToken ? `${SERVER || location.origin}/s/${al.shareToken}` : null;
   const more = h('button', { class: 'icon' }, '⋮');
   more.onclick = () => menu(more, [
     ['Rename', () => prompt2('Rename album', al.name, 'Save', async name => { await api('/api/albums/' + id, { method: 'PATCH', body: { name } }); route(); })],
@@ -417,7 +426,7 @@ async function viewAlbum(id) {
 }
 function shareAlbum(al) {
   const render = token => {
-    const url = token ? `${location.origin}/s/${token}` : null;
+    const url = token ? `${SERVER || location.origin}/s/${token}` : null;
     modal(h('h3', {}, 'Share “' + al.name + '”'),
       h('div', { class: 'muted' }, url ? 'Anyone with this link can view and download the photos in this album (no password). Only people who can reach this server can open it.' : 'Create a link so others can view this album without your password.'),
       url ? h('input', { type: 'text', value: url, readonly: true, onclick: e => e.target.select() }) : null,
@@ -480,7 +489,7 @@ function viewMap() {
   c.append(h('div', { class: 'toolbar' }, h('h2', {}, 'Map')), el);
   if (!window.L) { el.replaceWith(h('div', { class: 'empty' }, 'The map needs an internet connection to load.')); return; }
   const map = L.map(el, { worldCopyJump: true }).setView([20, 0], 2);
-  L.tileLayer('/tiles/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  L.tileLayer(SERVER + '/tiles/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
   const geo = all().filter(a => !a.trashedAt && a.lat != null);
   if (!geo.length) { c.append(h('div', { class: 'empty' }, 'No photos with a location yet.')); return; }
   const cluster = L.markerClusterGroup({
@@ -583,7 +592,8 @@ async function uploadFiles(files, albumId, extra = {}) {
     try {
       const res = await new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/upload');
+        xhr.open('POST', SERVER + '/api/upload');
+        if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
         xhr.upload.onprogress = e => {
           $('progressBar').style.width = Math.min(100, ((sent + (e.loaded / (e.total || 1)) * size) / total) * 100) + '%';
           $('progressText').textContent = `Uploading ${Math.min(done + batch.length, files.length)} of ${files.length}…`;
@@ -657,7 +667,7 @@ async function renderInfo() {
     box.append(mm);
     setTimeout(() => {
       const map = L.map(mm, { zoomControl: false, attributionControl: false }).setView([a.lat, a.lon], 13);
-      L.tileLayer('/tiles/{z}/{x}/{y}.png').addTo(map);
+      L.tileLayer(SERVER + '/tiles/{z}/{x}/{y}.png').addTo(map);
       L.marker([a.lat, a.lon]).addTo(map);
     }, 0);
   }

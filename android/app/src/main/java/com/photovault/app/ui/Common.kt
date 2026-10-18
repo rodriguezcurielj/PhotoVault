@@ -292,7 +292,7 @@ fun TextPrompt(title: String, initial: String = "", label: String = "", confirm:
         text = {
             OutlinedTextField(text, { text = it }, label = { if (label.isNotBlank()) Text(label) }, singleLine = true,
                 visualTransformation = if (password) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = if (password) KeyboardType.NumberPassword else KeyboardType.Text),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = if (password) KeyboardType.Password else KeyboardType.Text),
                 modifier = Modifier.fillMaxWidth().focusRequester(focus))
             LaunchedEffect(Unit) { focus.requestFocus() }
         },
