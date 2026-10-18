@@ -473,7 +473,7 @@ function viewMap() {
   c.append(h('div', { class: 'toolbar' }, h('h2', {}, 'Map')), el);
   if (!window.L) { el.replaceWith(h('div', { class: 'empty' }, 'The map needs an internet connection to load.')); return; }
   const map = L.map(el, { worldCopyJump: true }).setView([20, 0], 2);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/' + (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark_all' : 'rastertiles/voyager') + '/{z}/{x}/{y}{r}.png', { maxZoom: 19, subdomains: 'abcd', attribution: '© OpenStreetMap © CARTO' }).addTo(map);
   const geo = all().filter(a => !a.trashedAt && a.lat != null);
   if (!geo.length) { c.append(h('div', { class: 'empty' }, 'No photos with a location yet.')); return; }
   const cluster = L.markerClusterGroup({
@@ -650,7 +650,7 @@ async function renderInfo() {
     box.append(mm);
     setTimeout(() => {
       const map = L.map(mm, { zoomControl: false, attributionControl: false }).setView([a.lat, a.lon], 13);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { subdomains: 'abcd' }).addTo(map);
       L.marker([a.lat, a.lon]).addTo(map);
     }, 0);
   }

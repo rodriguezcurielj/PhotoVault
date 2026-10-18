@@ -7,22 +7,19 @@ import android.webkit.WebViewClient
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -30,47 +27,41 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.CameraFront
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Screenshot
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -79,22 +70,24 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import coil3.compose.AsyncImage
 import com.photovault.app.data.MediaItem
 import com.photovault.app.data.Repo
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
-import kotlinx.coroutines.launch
 import java.util.Calendar
 
 // ---------------------------------------------------------------- search
@@ -110,8 +103,8 @@ fun searchItems(all: List<MediaItem>, q: String): List<MediaItem> {
         val l = item.local
         val text = listOfNotNull(item.name, l?.bucketName, l?.relativePath, r?.city, r?.region, r?.country, r?.make, r?.model, r?.description,
             if (item.isVideo) "video videos" else "photo photos", if (item.favorite) "favorite favorites" else null,
-            if (item.name.contains("screenshot", true) || l?.bucketName?.contains("screenshot", true) == true) "screenshot screenshots" else null,
-            if (item.name.contains("selfie", true) || item.name.contains("front", true)) "selfie selfies" else null,
+            if (isScreenshot(item)) "screenshot screenshots" else null,
+            if (isSelfie(item)) "selfie selfies" else null,
             if (r?.archived == true) "archive archived" else null).joinToString(" ").lowercase()
         cal.timeInMillis = item.date
         words.all { w ->
@@ -123,159 +116,242 @@ fun searchItems(all: List<MediaItem>, q: String): List<MediaItem> {
         }
     }
 }
+fun isScreenshot(i: MediaItem) = i.name.contains("screenshot", true) || i.local?.bucketName?.contains("screenshot", true) == true
+fun isSelfie(i: MediaItem) = i.name.contains("selfie", true) || i.name.contains("front", true) || i.local?.bucketName?.contains("selfie", true) == true
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SearchTab() {
     val app = LocalApp.current
     val all by Repo.all.collectAsState()
     var q by remember { mutableStateOf("") }
-    val places = remember(all) {
-        all.mapNotNull { it.remote }.filter { it.city != null && it.trashedAt == null && !it.archived }.groupBy { it.city!! }
+    val live = remember(all) { all.filter { it.remote?.trashedAt == null || it.local != null } }
+    val places = remember(live) {
+        live.filter { it.remote?.city != null && !it.remote.archived }.groupBy { it.remote!!.city!! }
             .map { (city, list) -> Triple(city, list.size, list.first()) }.sortedByDescending { it.second }
     }
-    val years = remember(all) { all.groupBy { Calendar.getInstance().apply { timeInMillis = it.date }.get(Calendar.YEAR) }.toSortedMap(compareByDescending { it }) }
-    val cameras = remember(all) { all.mapNotNull { it.remote?.model }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(12) }
-    LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(bottom = 24.dp)) {
+    val results = remember(q, live) { if (q.length >= 2) searchItems(live, q) else emptyList() }
+    val years = remember(live) { live.groupBy { Calendar.getInstance().apply { timeInMillis = it.date }.get(Calendar.YEAR) }.toSortedMap(compareByDescending { it }) }
+    LazyColumn(Modifier.fillMaxSize().background(Ios.background), contentPadding = PaddingValues(bottom = 110.dp)) {
+        item { Text("Search", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.statusBarsPadding().padding(start = 16.dp, top = 12.dp)) }
         item {
-            TextField(q, { q = it }, placeholder = { Text("Search places, dates, “beach 2024”…") },
-                leadingIcon = { Icon(Icons.Filled.Search, null) }, singleLine = true, shape = RoundedCornerShape(28.dp),
-                colors = TextFieldDefaults.colors(focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
+            TextField(q, { q = it }, placeholder = { Text("Places, Dates, Cameras, and More", color = Ios.gray) },
+                leadingIcon = { Icon(Icons.Filled.Search, null, tint = Ios.gray) }, singleLine = true, shape = RoundedCornerShape(10.dp),
+                colors = TextFieldDefaults.colors(focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
+                    focusedContainerColor = Ios.fill, unfocusedContainerColor = Ios.fill),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { if (q.isNotBlank()) app.push(Screen.Grid("“$q”", "search:$q")) }),
-                modifier = Modifier.fillMaxWidth().padding(12.dp))
+                keyboardActions = KeyboardActions(onSearch = { if (q.isNotBlank()) app.push(Screen.Grid(q, "search:$q")) }),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).height(52.dp))
         }
-        item {
-            FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Pill("Favorites") { app.push(Screen.Grid("Favorites", "favorites")) }
-                Pill("Videos") { app.push(Screen.Grid("Videos", "videos")) }
-                Pill("Screenshots") { app.push(Screen.Grid("Screenshots", "screenshots")) }
-                Pill("Selfies") { app.push(Screen.Grid("Selfies", "search:selfie")) }
-                Pill("Recently added") { app.push(Screen.Grid("Recently added", "recent")) }
-                Pill("Map") { app.push(Screen.Map) }
-            }
-        }
-        if (places.isNotEmpty()) {
-            item { SectionTitle("Places") }
+        if (q.length >= 2) {
             item {
-                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(places.take(40)) { (city, count, cover) ->
-                        Column(Modifier.width(120.dp).clickable { app.push(Screen.Grid(city, "place:$city")) }) {
-                            RoundThumb(Repo.api.thumbUrl(cover.id), Modifier.size(120.dp))
-                            Text(city, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-                            Text("$count", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth().clickable { app.push(Screen.Grid(q, "search:$q")) }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${results.size} Results", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    Text("See All", color = Ios.blue)
+                }
+            }
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    items(results.take(30), key = { it.key }) { r -> Box(Modifier.size(110.dp).clickable { app.push(Screen.Viewer(results, results.indexOf(r))) }) { RoundThumb(thumbModel(r), Modifier.fillMaxSize(), 6) } }
+                }
+            }
+        } else {
+            if (places.isNotEmpty()) {
+                item { AppleSectionHeader("Places", "See All") { app.push(Screen.Map) } }
+                item {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(places.take(30)) { (city, count, cover) ->
+                            Column(Modifier.width(150.dp).clickable { app.push(Screen.Grid(city, "place:$city")) }) {
+                                RoundThumb(previewModel(cover), Modifier.size(150.dp), 12)
+                                Text(city, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                                Text("$count", style = MaterialTheme.typography.bodySmall, color = Ios.gray)
+                            }
                         }
                     }
                 }
             }
-        }
-        if (years.isNotEmpty()) {
-            item { SectionTitle("Years") }
+            item { AppleSectionHeader("Categories") }
             item {
-                LazyRow(contentPadding = PaddingValues(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(years.entries.toList()) { (y, list) ->
-                        Box(Modifier.size(120.dp).clickable { app.push(Screen.Grid("$y", "search:$y")) }) {
-                            RoundThumb(thumbModel(list.first()), Modifier.fillMaxSize())
-                            Text("$y", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.BottomStart).padding(10.dp))
-                        }
-                    }
+                val cats = listOf(
+                    Triple("Videos", "videos", live.firstOrNull { it.isVideo }), Triple("Favorites", "favorites", live.firstOrNull { it.favorite }),
+                    Triple("Selfies", "search:selfie", live.firstOrNull(::isSelfie)), Triple("Screenshots", "screenshots", live.firstOrNull(::isScreenshot)),
+                    Triple("Recently Added", "recent", live.maxByOrNull { it.remote?.uploadedAt ?: 0 }),
+                )
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(cats) { (label, kind, cover) -> LabeledTile(label, cover?.let { thumbModel(it) }) { app.push(Screen.Grid(label, kind)) } }
                 }
             }
-        }
-        if (cameras.isNotEmpty()) {
-            item { SectionTitle("Cameras") }
-            item {
-                FlowRow(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    cameras.forEach { (m, n) -> Pill("$m · $n") { app.push(Screen.Grid(m, "search:$m")) } }
+            if (years.isNotEmpty()) {
+                item { AppleSectionHeader("Moments") }
+                item {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(years.entries.toList()) { (y, list) -> LabeledTile("$y", previewModel(list.first())) { app.push(Screen.Grid("$y", "search:$y")) } }
+                    }
                 }
             }
         }
     }
 }
 
-// ---------------------------------------------------------------- library
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryTab() {
+private fun LabeledTile(label: String, model: Any?, onClick: () -> Unit) {
+    Box(Modifier.size(150.dp).clickable(onClick = onClick)) {
+        RoundThumb(model, Modifier.fillMaxSize(), 12)
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f))), RoundedCornerShape(12.dp)))
+        Text(label, color = Color.White, style = MaterialTheme.typography.titleSmall, modifier = Modifier.align(Alignment.BottomStart).padding(10.dp))
+    }
+}
+
+// ---------------------------------------------------------------- Albums tab (iOS grouped style)
+@Composable
+fun AlbumsTab() {
     val app = LocalApp.current
     val albums by Repo.albums.collectAsState()
+    val all by Repo.all.collectAsState()
+    val localTrash by Repo.localTrash.collectAsState()
+    val local by Repo.local.collectAsState()
     var newAlbum by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { Repo.refreshExtras() }
-    Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text("Library", fontWeight = FontWeight.SemiBold) }, actions = {
-            BackupIndicator()
-            IconButton(onClick = { app.push(Screen.Settings) }) { Icon(Icons.Filled.Settings, "Settings") }
-        }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
-        LazyVerticalGrid(GridCells.Adaptive(160.dp), contentPadding = PaddingValues(12.dp, 0.dp, 12.dp, 32.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        LibButton(Icons.Filled.Favorite, "Favorites", Modifier.weight(1f)) { app.push(Screen.Grid("Favorites", "favorites")) }
-                        LibButton(Icons.Filled.Videocam, "Videos", Modifier.weight(1f)) { app.push(Screen.Grid("Videos", "videos")) }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        LibButton(Icons.Filled.Archive, "Archive", Modifier.weight(1f)) { app.push(Screen.Grid("Archive", "archive")) }
-                        LibButton(Icons.Filled.Lock, "Locked folder", Modifier.weight(1f)) { app.push(Screen.Locked) }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        LibButton(Icons.Filled.Delete, "Trash", Modifier.weight(1f)) { app.push(Screen.Trash) }
-                        LibButton(Icons.Filled.Map, "Map", Modifier.weight(1f)) { app.push(Screen.Map) }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        LibButton(Icons.Filled.PhoneAndroid, "On this device", Modifier.weight(1f)) { app.push(Screen.Folders) }
-                        LibButton(Icons.Filled.CleaningServices, "Free up space", Modifier.weight(1f)) { app.push(Screen.FreeUp) }
-                    }
-                }
+    val live = remember(all) { all.filter { it.remote?.trashedAt == null || it.local != null } }
+    val favorites = remember(live) { live.filter { it.favorite } }
+    val recents = remember(live) { timelineOf(live) }
+    LazyColumn(Modifier.fillMaxSize().background(Ios.grouped), contentPadding = PaddingValues(bottom = 110.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Albums", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+                androidx.compose.material3.IconButton(onClick = { newAlbum = true }) { Icon(Icons.Filled.Add, "New album", tint = Ios.blue) }
             }
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 12.dp)) {
-                    Text("Albums", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    androidx.compose.material3.TextButton(onClick = { newAlbum = true }) { Icon(Icons.Filled.Add, null); Spacer(Modifier.width(4.dp)); Text("New album") }
-                }
-            }
-            if (albums.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { EmptyState("No albums yet", "Select photos and tap “Add to album”.") }
-            items(albums, key = { it.id }) { al ->
-                Column(Modifier.clickable { app.push(Screen.Album(al.id)) }) {
-                    RoundThumb(al.cover?.let { Repo.api.thumbUrl(it) }, Modifier.fillMaxWidth().aspectRatio(1f))
-                    Text(al.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-                    Text("${al.count} items" + if (al.shareToken != null) " · Shared" else "", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        item { AppleSectionHeader("My Albums") }
+        item {
+            data class Card(val title: String, val count: Int, val cover: Any?, val open: () -> Unit)
+            val cards = listOf(
+                Card("Recents", recents.size, recents.firstOrNull()?.let { thumbModel(it) }) { app.tab = 0 },
+                Card("Favorites", favorites.size, favorites.firstOrNull()?.let { thumbModel(it) }) { app.push(Screen.Grid("Favorites", "favorites")) },
+            ) + albums.map { al -> Card(al.name, al.count, al.cover?.let { Repo.api.thumbUrl(it) }) { app.push(Screen.Album(al.id)) } }
+            val rows = if (cards.size > 2) 2 else 1
+            LazyHorizontalGrid(GridCells.Fixed(rows), Modifier.height((235 * rows).dp),
+                contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(cards) { c ->
+                    Column(Modifier.width(170.dp).clickable(onClick = c.open)) {
+                        RoundThumb(c.cover, Modifier.size(170.dp), 8)
+                        Text(c.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 5.dp))
+                        Text("${c.count}", style = MaterialTheme.typography.bodyMedium, color = Ios.gray)
+                    }
                 }
             }
         }
+        val shared = albums.filter { it.shareToken != null }
+        if (shared.isNotEmpty()) {
+            item { AppleSectionHeader("Shared Albums") }
+            item {
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(shared) { al ->
+                        Column(Modifier.width(170.dp).clickable { app.push(Screen.Album(al.id)) }) {
+                            RoundThumb(al.cover?.let { Repo.api.thumbUrl(it) }, Modifier.size(170.dp), 8)
+                            Text(al.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, modifier = Modifier.padding(top = 5.dp))
+                            Text("${al.count}", style = MaterialTheme.typography.bodyMedium, color = Ios.gray)
+                        }
+                    }
+                }
+            }
+        }
+        item { AppleSectionHeader("Places") }
+        item {
+            val geo = live.firstOrNull { it.remote?.lat != null }
+            Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(170.dp).clip(RoundedCornerShape(12.dp)).clickable { app.push(Screen.Map) }) {
+                RoundThumb(geo?.let { previewModel(it) }, Modifier.fillMaxSize(), 12)
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.5f)))))
+                Row(Modifier.align(Alignment.BottomStart).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Map, null, tint = Color.White); Spacer(Modifier.width(6.dp))
+                    Text("Map · ${live.count { it.remote?.lat != null }} Photos", color = Color.White, style = MaterialTheme.typography.titleSmall)
+                }
+            }
+        }
+        item { AppleSectionHeader("Media Types") }
+        item {
+            GroupedList(listOf(
+                Row3(Icons.Filled.Videocam, "Videos", live.count { it.isVideo }) { app.push(Screen.Grid("Videos", "videos")) },
+                Row3(Icons.Filled.CameraFront, "Selfies", live.count(::isSelfie)) { app.push(Screen.Grid("Selfies", "search:selfie")) },
+                Row3(Icons.Filled.Screenshot, "Screenshots", live.count(::isScreenshot)) { app.push(Screen.Grid("Screenshots", "screenshots")) },
+            ))
+        }
+        item { AppleSectionHeader("Utilities") }
+        item {
+            GroupedList(listOf(
+                Row3(Icons.Filled.FolderOpen, "On This Phone", local.size) { app.push(Screen.Folders) },
+                Row3(Icons.Filled.Archive, "Archive", all.count { it.remote?.archived == true && it.remote.trashedAt == null }) { app.push(Screen.Grid("Archive", "archive")) },
+                Row3(Icons.Filled.VisibilityOff, "Hidden", null, locked = true) { app.push(Screen.Locked) },
+                Row3(Icons.Filled.Delete, "Recently Deleted", localTrash.size + all.count { it.local == null && it.remote?.trashedAt != null }) { app.push(Screen.Trash) },
+                Row3(Icons.Filled.CleaningServices, "Free Up Space", null) { app.push(Screen.FreeUp) },
+            ))
+        }
     }
-    if (newAlbum) TextPrompt("New album", label = "Album name", confirm = "Create", onDismiss = { newAlbum = false }) { name ->
+    if (newAlbum) TextPrompt("New Album", label = "Title", confirm = "Save", onDismiss = { newAlbum = false }) { name ->
         newAlbum = false
         app.run { val al = Repo.api.createAlbum(name, emptyList()); Repo.refreshExtras(); app.push(Screen.Album(al.id)); null }
     }
 }
 
+data class Row3(val icon: ImageVector, val title: String, val count: Int?, val locked: Boolean = false, val onClick: () -> Unit)
+
+/** iOS inset grouped list: rounded card, blue icons, counts and chevrons. */
 @Composable
-private fun LibButton(icon: ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
-    Surface(onClick = onClick, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = modifier) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(12.dp))
-            Text(label, style = MaterialTheme.typography.titleSmall)
+fun GroupedList(rows: List<Row3>) {
+    Column(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Ios.cell)) {
+        rows.forEachIndexed { i, r ->
+            Row(Modifier.fillMaxWidth().clickable(onClick = r.onClick).padding(start = 14.dp, end = 8.dp).height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(r.icon, null, tint = Ios.blue, modifier = Modifier.size(22.dp))
+                Spacer(Modifier.width(14.dp))
+                Text(r.title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                if (r.locked) Text("🔒", color = Ios.gray)
+                if (r.count != null) Text("${r.count}", color = Ios.gray, style = MaterialTheme.typography.bodyLarge)
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = Ios.separator)
+            }
+            if (i < rows.lastIndex) Box(Modifier.padding(start = 50.dp).fillMaxWidth().height(0.5.dp).background(Ios.separator))
         }
     }
 }
 
-// ---------------------------------------------------------------- generic grids
-@OptIn(ExperimentalMaterial3Api::class)
+// ---------------------------------------------------------------- photo pages (album, favorites, place, search...)
+/** A full-screen grid with the big title over the photos and the selection bar, used by every sub-page. */
 @Composable
-fun BackTopBar(title: String, actions: @Composable () -> Unit = {}) {
+fun PhotoPage(title: String, subtitle: String?, items: List<MediaItem>, stateKey: Any, albumId: Long? = null,
+              empty: @Composable () -> Unit = { EmptyState("No Photos", "") },
+              extraSelect: (@Composable (List<MediaItem>, () -> Unit) -> Unit)? = null,
+              selectionBar: (@Composable (Selection) -> Unit)? = null,
+              onOpen: ((List<MediaItem>, Int) -> Unit)? = null,
+              menu: (@Composable (() -> Unit) -> Unit)? = null) {
     val app = LocalApp.current
-    TopAppBar(title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        navigationIcon = { IconButton(onClick = { app.pop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
-        actions = { actions() }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
+    val selection = remember { Selection() }
+    val state = app.gridState(stateKey)
+    val display = remember(items) { items.asReversed() }
+    val range by remember(display) { derivedStateOf { visibleRange(state, display) } }
+    var showMenu by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize().background(Ios.background)) {
+        MediaGrid(items, selection, state = state, contentPadding = PaddingValues(top = 130.dp, bottom = 90.dp), empty = empty,
+            onOpen = onOpen ?: { list, i -> app.push(Screen.Viewer(list, i, albumId = albumId)) })
+        val onPhotos = items.isNotEmpty()
+        TitleOverlay(if (selection.active) "${selection.keys.size} Selected" else title, if (selection.active) null else subtitle ?: range,
+            onPhotos = onPhotos, onBack = { app.pop() }) {
+            if (items.isNotEmpty()) {
+                if (selection.active) Capsule("Cancel", onPhotos = onPhotos) { selection.clear() }
+                else Capsule("Select", onPhotos = onPhotos) { selection.mode = true }
+            }
+            if (menu != null && !selection.active) Box {
+                Capsule(icon = Icons.Filled.MoreHoriz, onPhotos = onPhotos) { showMenu = true }
+                DropdownMenu(showMenu, { showMenu = false }) { menu { showMenu = false } }
+            }
+        }
+        if (selection.active) {
+            if (selectionBar != null) Box(Modifier.align(Alignment.BottomCenter)) { selectionBar(selection) }
+            else SelectionBottomBar(selection, items, Modifier.align(Alignment.BottomCenter), albumId = albumId, extra = extraSelect)
+        }
+    }
 }
 
 @Composable
 fun GridScreen(s: Screen.Grid) {
-    val app = LocalApp.current
     val all by Repo.all.collectAsState()
-    val selection = remember { Selection() }
     val live = { it: MediaItem -> it.remote?.trashedAt == null || it.local != null }
     val items = remember(all, s.kind) {
         when {
@@ -283,20 +359,15 @@ fun GridScreen(s: Screen.Grid) {
             s.kind == "videos" -> all.filter { it.isVideo && live(it) && it.remote?.archived != true }
             s.kind == "archive" -> all.filter { it.remote?.archived == true && it.remote.trashedAt == null }
             s.kind == "recent" -> all.filter(live).sortedByDescending { it.remote?.uploadedAt ?: ((it.local?.modified ?: 0) * 1000) }.take(500)
-            s.kind == "screenshots" -> all.filter { live(it) && (it.local?.bucketName?.contains("screenshot", true) == true || it.name.contains("screenshot", true)) }
+            s.kind == "screenshots" -> all.filter { live(it) && isScreenshot(it) }
             s.kind.startsWith("place:") -> all.filter { live(it) && it.remote?.city == s.kind.removePrefix("place:") }
             s.kind.startsWith("folder:") -> all.filter { it.local?.bucketId == s.kind.removePrefix("folder:") }
             s.kind.startsWith("search:") -> searchItems(all, s.kind.removePrefix("search:"))
             else -> emptyList()
         }
     }
-    Column(Modifier.fillMaxSize()) {
-        if (selection.active) SelectionBar(selection, items) else BackTopBar(s.title)
-        MediaGrid(items, selection, onOpen = { app.push(Screen.Viewer(items, it)) }, state = app.gridState(s),
-            groupByDay = s.kind != "recent",
-            empty = { EmptyState(if (s.kind.startsWith("search:")) "No results" else "Nothing here yet",
-                if (s.kind.startsWith("search:")) "Try a place, a year, a month, a camera, “videos” or “favorites”." else "") })
-    }
+    PhotoPage(s.title, null, items, s,
+        empty = { EmptyState(if (s.kind.startsWith("search:")) "No Results" else "No Photos", if (s.kind.startsWith("search:")) "Try a place, a year, a month, a camera, “videos” or “favorites”." else "") })
 }
 
 @Composable
@@ -312,46 +383,34 @@ fun AlbumScreen(id: Long) {
     }
     val byRemote = remember(all) { all.filter { it.remote != null }.associateBy { it.remote!!.id } }
     val items = remember(assets, byRemote) { assets.map { byRemote[it.id] ?: MediaItem(null, it) } }
-    val selection = remember { Selection() }
-    var menu by remember { mutableStateOf(false) }
     var rename by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    Column(Modifier.fillMaxSize()) {
-        if (selection.active) SelectionBar(selection, items, albumId = id)
-        else BackTopBar(album?.name ?: "") {
-            IconButton(onClick = {
-                app.run {
-                    val token = album?.shareToken ?: Repo.api.shareAlbum(id, true)!!
-                    reload++
-                    ctx.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
-                        .putExtra(android.content.Intent.EXTRA_TEXT, Repo.api.shareUrl(token)), "Share album link"))
-                    null
-                }
-            }) { Icon(Icons.Filled.Share, "Share link") }
-            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "More") }
-            DropdownMenu(menu, { menu = false }) {
-                DropdownMenuItem({ Text("Slideshow") }, { menu = false; if (assets.isNotEmpty()) app.push(Screen.Story(com.photovault.app.data.Memory(album?.name ?: "", assets))) })
-                DropdownMenuItem({ Text("Rename") }, { menu = false; rename = true })
-                if (album?.shareToken != null) DropdownMenuItem({ Text("Turn off shared link") }, { menu = false; app.run { Repo.api.shareAlbum(id, false); reload++; "Link turned off" } })
-                DropdownMenuItem({ Text("Save all to this phone") }, { menu = false; app.run { app.actions.saveToDevice(items) } })
-                DropdownMenuItem({ Text("Delete album") }, { menu = false; confirmDelete = true })
-            }
-        }
-        if (album != null) Text("${items.size} items" + if (album?.shareToken != null) " · Anyone with the link can view" else "",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
-        MediaGrid(items, selection, onOpen = { app.push(Screen.Viewer(items, it, albumId = id)) }, state = app.gridState("album$id"),
-            empty = { EmptyState("This album is empty", "Select photos in Photos and tap “Add to album”.") })
+    fun shareLink() = app.run {
+        val token = album?.shareToken ?: Repo.api.shareAlbum(id, true)!!
+        reload++
+        ctx.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+            .putExtra(android.content.Intent.EXTRA_TEXT, Repo.api.shareUrl(token)), "Share album link"))
+        null
     }
-    if (rename) TextPrompt("Rename album", album?.name ?: "", confirm = "Save", onDismiss = { rename = false }) { name ->
-        rename = false; app.run { Repo.api.renameAlbum(id, name); Repo.refreshExtras(); reload++; "Renamed" }
+    PhotoPage(album?.name ?: "", null, items, "album$id", albumId = id,
+        empty = { EmptyState("No Photos", "Select photos in Library and choose Add to Album.") },
+        menu = { close ->
+            DropdownMenuItem({ Text("Share Link") }, { close(); shareLink() }, leadingIcon = { Icon(Icons.Outlined.IosShare, null) })
+            DropdownMenuItem({ Text("Slideshow") }, { close(); if (assets.isNotEmpty()) app.push(Screen.Story(com.photovault.app.data.Memory(album?.name ?: "", assets))) })
+            DropdownMenuItem({ Text("Rename Album") }, { close(); rename = true })
+            if (album?.shareToken != null) DropdownMenuItem({ Text("Stop Sharing") }, { close(); app.run { Repo.api.shareAlbum(id, false); reload++; "Link turned off" } })
+            DropdownMenuItem({ Text("Save All to This Phone") }, { close(); app.run { app.actions.saveToDevice(items) } })
+            DropdownMenuItem({ Text("Delete Album", color = Ios.red) }, { close(); confirmDelete = true })
+        })
+    if (rename) TextPrompt("Rename Album", album?.name ?: "", confirm = "Save", onDismiss = { rename = false }) { name ->
+        rename = false; app.run { Repo.api.renameAlbum(id, name); Repo.refreshExtras(); reload++; null }
     }
-    if (confirmDelete) ConfirmDialog("Delete album?", "The photos stay in your library.", "Delete", { confirmDelete = false }) {
+    if (confirmDelete) ConfirmDialog("Delete Album?", "The photos stay in your library.", "Delete", { confirmDelete = false }) {
         app.run { Repo.api.deleteAlbum(id); Repo.refreshExtras(); app.pop(); "Album deleted" }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrashScreen() {
     val app = LocalApp.current
@@ -360,22 +419,24 @@ fun TrashScreen() {
     val items = remember(all, localTrash) {
         (localTrash.map { MediaItem(it, null) } + all.filter { it.local == null && it.remote?.trashedAt != null }).sortedByDescending { it.date }
     }
-    val selection = remember { Selection() }
     var confirmEmpty by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { Repo.refreshLocal() }
-    Column(Modifier.fillMaxSize()) {
-        if (selection.active) TopAppBar(
-            navigationIcon = { IconButton(onClick = { selection.clear() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
-            title = { Text("${selection.keys.size}") },
-            actions = {
-                androidx.compose.material3.TextButton(onClick = { val c = selection.items(items); app.run { app.actions.restore(c).also { selection.clear() } } }) { Text("Restore") }
-                androidx.compose.material3.TextButton(onClick = { val c = selection.items(items); app.run { app.actions.deleteForever(c).also { selection.clear() } } }) { Text("Delete") }
-            })
-        else BackTopBar("Trash") { if (items.isNotEmpty()) androidx.compose.material3.TextButton(onClick = { confirmEmpty = true }) { Text("Empty") } }
-        Text("Items are deleted forever after 30 days.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
-        MediaGrid(items, selection, groupByDay = false, onOpen = { app.push(Screen.Viewer(items, it)) }, empty = { EmptyState("Trash is empty", "") })
-    }
-    if (confirmEmpty) ConfirmDialog("Empty trash?", "${items.size} items will be deleted forever.", "Empty trash", { confirmEmpty = false }) { app.run { app.actions.emptyTrash() } }
+    PhotoPage("Recently Deleted", "Deleted forever after 30 days", items, "trash",
+        empty = { EmptyState("No Photos or Videos", "Deleted items stay here for 30 days.") },
+        selectionBar = { selection ->
+            val chosen = selection.items(items)
+            Row(Modifier.fillMaxWidth().background(Ios.bar).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text("Delete", color = if (chosen.isEmpty()) Ios.gray else Ios.red, fontSize = 17.sp, modifier = Modifier.clickable(enabled = chosen.isNotEmpty()) {
+                    app.run { app.actions.deleteForever(chosen).also { selection.clear() } }
+                })
+                Spacer(Modifier.weight(1f))
+                Text("Recover", color = if (chosen.isEmpty()) Ios.gray else Ios.blue, fontSize = 17.sp, modifier = Modifier.clickable(enabled = chosen.isNotEmpty()) {
+                    app.run { app.actions.restore(chosen).also { selection.clear() } }
+                })
+            }
+        },
+        menu = if (items.isEmpty()) null else ({ close -> DropdownMenuItem({ Text("Delete All", color = Ios.red) }, { close(); confirmEmpty = true }) }))
+    if (confirmEmpty) ConfirmDialog("Delete All?", "${items.size} items will be deleted forever.", "Delete All", { confirmEmpty = false }) { app.run { app.actions.emptyTrash() } }
 }
 
 @Composable
@@ -383,29 +444,29 @@ fun LockedScreen() {
     val app = LocalApp.current
     var password by remember { mutableStateOf<String?>(null) }
     var items by remember { mutableStateOf<List<MediaItem>?>(null) }
-    val selection = remember { Selection() }
     var reload by remember { mutableIntStateOf(0) }
     LaunchedEffect(password, reload) {
         val pw = password ?: return@LaunchedEffect
         runCatching { Repo.api.lockedAssets(pw) }.onSuccess { list -> items = list.map { MediaItem(null, it) } }
             .onFailure { password = null; app.toast(it.message ?: "Wrong password") }
     }
-    Column(Modifier.fillMaxSize()) {
-        if (selection.active) SelectionBar(selection, items ?: emptyList(), extra = { chosen, close ->
-            DropdownMenuItem({ Text("Move out of locked folder") }, { close(); app.run { app.actions.unlock(chosen.mapNotNull { it.remote?.id }, password!!).also { selection.clear(); reload++ } } })
-        })
-        else BackTopBar("Locked folder")
-        val list = items
-        if (password == null || list == null) {
-            Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Filled.Lock, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
-                Text("Photos here are hidden from Photos, search, albums and the map, and removed from this phone.", modifier = Modifier.padding(vertical = 16.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (password == null) TextPrompt("Enter your PhotoVault password", password = true, confirm = "Unlock", onDismiss = { app.pop() }) { password = it }
-        } else MediaGrid(list, selection, onOpen = { app.push(Screen.Viewer(list, it, lockedPassword = password)) },
-            empty = { EmptyState("Nothing locked", "Select photos and choose “Move to locked folder”.") })
+    val list = items
+    if (password == null || list == null) {
+        Column(Modifier.fillMaxSize().background(Ios.background).statusBarsPadding().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Icon(Icons.Filled.VisibilityOff, null, modifier = Modifier.size(56.dp), tint = Ios.blue)
+            Text("Hidden", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 12.dp))
+            Text("Hidden photos don't appear in your Library, albums, search or the map, and are removed from this phone.", textAlign = TextAlign.Center,
+                color = Ios.gray, modifier = Modifier.padding(vertical = 12.dp))
+        }
+        if (password == null) TextPrompt("Enter your PhotoVault password", password = true, confirm = "View", onDismiss = { app.pop() }) { password = it }
+        return
     }
+    PhotoPage("Hidden", null, list, "locked",
+        empty = { EmptyState("No Hidden Photos", "Select photos and choose Hide.") },
+        onOpen = { l, i -> app.push(Screen.Viewer(l, i, lockedPassword = password)) },
+        extraSelect = { chosen, close ->
+            DropdownMenuItem({ Text("Unhide") }, { close(); app.run { app.actions.unlock(chosen.mapNotNull { it.remote?.id }, password!!).also { reload++ } } })
+        })
 }
 
 @Composable
@@ -416,20 +477,22 @@ fun FoldersScreen() {
     val folders = remember(local) {
         local.groupBy { it.bucketId }.map { (id, list) -> com.photovault.app.data.DeviceFolder(id, list.first().bucketName, list.size, list.first()) }.sortedByDescending { it.count }
     }
-    Column(Modifier.fillMaxSize()) {
-        BackTopBar("On this device")
-        LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
-            item { Text("Switch a folder off to stop backing it up.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(16.dp, 0.dp, 16.dp, 8.dp)) }
-            items(folders, key = { it.bucketId }) { f ->
-                Row(Modifier.fillMaxWidth().clickable { app.push(Screen.Grid(f.name, "folder:${f.bucketId}")) }.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    RoundThumb(com.photovault.app.LocalThumb(f.cover.uri), Modifier.size(56.dp), 10)
-                    Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
-                        Text(f.name); Text("${f.count} items", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    LazyColumn(Modifier.fillMaxSize().background(Ios.grouped), contentPadding = PaddingValues(bottom = 40.dp)) {
+        item { TitleOverlay("On This Phone", "Turn a folder off to stop backing it up", onPhotos = false, onBack = { app.pop() }) }
+        item {
+            Column(Modifier.padding(horizontal = 16.dp).clip(RoundedCornerShape(10.dp)).background(Ios.cell)) {
+                folders.forEachIndexed { i, f ->
+                    Row(Modifier.fillMaxWidth().clickable { app.push(Screen.Grid(f.name, "folder:${f.bucketId}")) }.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RoundThumb(com.photovault.app.LocalThumb(f.cover.uri), Modifier.size(54.dp), 6)
+                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                            Text(f.name, style = MaterialTheme.typography.bodyLarge); Text("${f.count}", style = MaterialTheme.typography.bodySmall, color = Ios.gray)
+                        }
+                        Switch(f.bucketId !in excluded, { on ->
+                            excluded = if (on) excluded - f.bucketId else excluded + f.bucketId
+                            Repo.prefs.excludedBuckets = excluded
+                        })
                     }
-                    Switch(f.bucketId !in excluded, { on ->
-                        excluded = if (on) excluded - f.bucketId else excluded + f.bucketId
-                        Repo.prefs.excludedBuckets = excluded
-                    })
+                    if (i < folders.lastIndex) Box(Modifier.padding(start = 78.dp).fillMaxWidth().height(0.5.dp).background(Ios.separator))
                 }
             }
         }
@@ -442,14 +505,14 @@ fun FreeUpScreen() {
     val all by Repo.all.collectAsState()
     val backed = remember(all) { all.filter { it.backedUp && it.remote?.trashedAt == null } }
     val bytes = backed.sumOf { it.local!!.size }
-    Column(Modifier.fillMaxSize()) {
-        BackTopBar("Free up space")
+    Column(Modifier.fillMaxSize().background(Ios.grouped)) {
+        TitleOverlay("Free Up Space", null, onPhotos = false, onBack = { app.pop() })
         Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Filled.CleaningServices, null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
-            Text(if (backed.isEmpty()) "Nothing to free up yet" else "Free up ${fmtBytes(bytes)}", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 16.dp))
+            Icon(Icons.Filled.CleaningServices, null, modifier = Modifier.size(56.dp), tint = Ios.blue)
+            Text(if (backed.isEmpty()) "Nothing to Free Up Yet" else fmtBytes(bytes), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 16.dp))
             Text("${backed.size} photos and videos on this phone are safely backed up to PhotoVault. Removing them from the phone keeps them in PhotoVault, where you can still see them here.",
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 16.dp))
-            Button(enabled = backed.isNotEmpty(), onClick = { app.run { app.actions.freeUpSpace(backed) } }) { Text("Free up ${fmtBytes(bytes)}") }
+                textAlign = TextAlign.Center, color = Ios.gray, modifier = Modifier.padding(vertical = 16.dp))
+            Button(enabled = backed.isNotEmpty(), onClick = { app.run { app.actions.freeUpSpace(backed) } }) { Text("Free Up ${fmtBytes(bytes)}") }
         }
     }
 }
@@ -460,16 +523,16 @@ fun FreeUpScreen() {
 fun MapScreen() {
     val app = LocalApp.current
     val all by Repo.all.collectAsState()
+    val dark = androidx.compose.foundation.isSystemInDarkTheme()
     val geo = remember(all) { all.filter { it.remote?.lat != null && it.remote.trashedAt == null && !it.remote.archived } }
     val data = remember(geo) {
         JSONArray().apply {
             geo.forEachIndexed { i, it -> put(JSONObject().put("i", i).put("lat", it.remote!!.lat).put("lon", it.remote.lon).put("t", Repo.api.thumbUrl(it.remote.id) + "?token=" + Repo.prefs.token)) }
         }.toString()
     }
-    Column(Modifier.fillMaxSize()) {
-        BackTopBar("Map · ${geo.size} photos")
-        if (geo.isEmpty()) { EmptyState("No photos with a location yet", "Photos backed up with GPS show up here."); return@Column }
-        AndroidView(factory = { ctx ->
+    Box(Modifier.fillMaxSize().background(Ios.background)) {
+        if (geo.isEmpty()) Box(Modifier.fillMaxSize().padding(top = 120.dp)) { EmptyState("No Places Yet", "Photos with a location show up here once they're backed up.") }
+        else AndroidView(factory = { ctx ->
             WebView(ctx).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
@@ -484,33 +547,44 @@ fun MapScreen() {
                 addJavascriptInterface(object {
                     @JavascriptInterface fun open(indexes: String) {
                         val idx = indexes.split(",").mapNotNull { it.toIntOrNull() }
-                        post { app.push(Screen.Viewer(idx.mapNotNull { geo.getOrNull(it) }, 0)) }
+                        post { app.push(Screen.Viewer(idx.mapNotNull { geo.getOrNull(it) }.sortedBy { it.date }, 0)) }
                     }
                 }, "Android")
-                loadDataWithBaseURL("https://photovault.local/", mapHtml(data), "text/html", "utf-8", null)
+                loadDataWithBaseURL(Repo.prefs.server + "/", mapHtml(data, dark), "text/html", "utf-8", null)
             }
         }, modifier = Modifier.fillMaxSize())
+        TitleOverlay("Places", "${geo.size} Photos", onPhotos = false, onBack = { app.pop() })
     }
 }
 
-private fun mapHtml(data: String) = """
+/** Apple Maps–like look: CARTO "Voyager" tiles (light) / "Dark Matter" (dark), rounded photo pins with a count badge. */
+private fun mapHtml(data: String, dark: Boolean) = """
 <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
-<style>html,body,#m{margin:0;height:100%} .t{width:48px;height:48px;border-radius:9px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4);object-fit:cover}
-.c{position:absolute;right:-8px;top:-8px;background:#2f6fde;color:#fff;border-radius:10px;padding:1px 6px;font:600 11px sans-serif}</style></head>
+<style>html,body,#m{margin:0;height:100%;background:${if (dark) "#1c1c1e" else "#f2f2f7"}}
+.t{width:56px;height:56px;border-radius:12px;border:3px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.35);object-fit:cover;background:#ddd;display:block}
+.p{position:relative}.p:after{content:'';position:absolute;left:50%;bottom:-7px;margin-left:-7px;border:7px solid transparent;border-bottom:0;border-top-color:#fff}
+.c{position:absolute;right:-9px;top:-9px;background:#007aff;color:#fff;border-radius:11px;padding:2px 7px;font:600 12px -apple-system,Roboto,sans-serif;border:2px solid #fff}
+.leaflet-control-attribution{font-size:9px}</style></head>
 <body><div id="m"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
 <script>
+console.log('map start', typeof L, innerWidth, innerHeight);
 const pts = $data;
 const map = L.map('m', {zoomControl:false}).setView([20,0],2);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
-const icon = (t, n) => L.divIcon({html:'<img class="t" src="'+t+'">'+(n?'<span class="c">'+n+'</span>':''), className:'', iconSize:[48,48]});
-const cl = L.markerClusterGroup({iconCreateFunction: c => icon(c.getAllChildMarkers()[0].p.t, c.getChildCount()), zoomToBoundsOnClick:false});
-pts.forEach(p => { const m = L.marker([p.lat,p.lon],{icon:icon(p.t)}); m.p = p; m.on('click',()=>Android.open(String(p.i))); cl.addLayer(m); });
-cl.on('clusterclick', e => { if (map.getZoom() >= 15) Android.open(e.layer.getAllChildMarkers().map(m=>m.p.i).join(',')); else e.layer.zoomToBounds({padding:[30,30]}); });
-map.addLayer(cl); map.fitBounds(cl.getBounds(), {padding:[30,30], maxZoom:12});
+L.tileLayer('https://{s}.basemaps.cartocdn.com/${if (dark) "dark_all" else "rastertiles/voyager"}/{z}/{x}/{y}{r}.png',
+  {maxZoom:19, subdomains:'abcd', attribution:'© OpenStreetMap © CARTO'}).addTo(map);
+const icon = (t, n) => L.divIcon({html:'<div class="p"><img class="t" src="'+t+'">'+(n>1?'<span class="c">'+n+'</span>':'')+'</div>', className:'', iconSize:[56,63], iconAnchor:[28,63]});
+const cl = L.markerClusterGroup({iconCreateFunction: c => icon(c.getAllChildMarkers()[0].p.t, c.getChildCount()), zoomToBoundsOnClick:false, showCoverageOnHover:false, maxClusterRadius:70});
+pts.forEach(p => { const m = L.marker([p.lat,p.lon],{icon:icon(p.t,1)}); m.p = p; m.on('click',()=>Android.open(String(p.i))); cl.addLayer(m); });
+cl.on('clusterclick', e => { if (map.getZoom() >= 15) Android.open(e.layer.getAllChildMarkers().map(m=>m.p.i).join(',')); else e.layer.zoomToBounds({padding:[40,40]}); });
+map.addLayer(cl);
+// The WebView can start at zero size; re-measure once it has its real size, then frame all the photos.
+const frame = () => { const ts=[...document.querySelectorAll('.leaflet-tile')]; console.log('frame', innerWidth, innerHeight, 'tiles', ts.length, ts.filter(t=>t.complete&&t.naturalWidth).length, 'pins', document.querySelectorAll('.t').length, getComputedStyle(document.getElementById('m')).backgroundColor, document.getElementById('m').offsetHeight, ts[0]&&ts[0].src); map.invalidateSize(); if (innerHeight > 0) map.fitBounds(cl.getBounds(), {padding:[60,60], maxZoom:12}); };
+addEventListener('resize', () => map.invalidateSize());
+frame(); setTimeout(frame, 300); setTimeout(frame, 1200);
 </script></body></html>
 """
 
@@ -533,16 +607,18 @@ fun StoryScreen(memory: com.photovault.app.data.Memory) {
     Box(Modifier.fillMaxSize().background(Color.Black).pointerInput(Unit) {
         detectTapGestures { p -> if (p.x < size.width / 3) { if (index > 0) index-- } else if (index < items.size - 1) index++ else app.pop() }
     }) {
-        AsyncImage(Repo.api.previewUrl(items[index].id), null, contentScale = ContentScale.Fit,
+        AsyncImage(Repo.api.previewUrl(items[index].id), null, contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = zoom.value; scaleY = zoom.value })
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent, Color.Transparent))))
         Column(Modifier.statusBarsPadding().padding(10.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                 items.take(30).forEachIndexed { i, _ ->
                     LinearProgressIndicator(progress = { if (i < index) 1f else if (i == index) progress.value else 0f },
-                        modifier = Modifier.weight(1f).height(3.dp).clip(RoundedCornerShape(2.dp)), color = Color.White, trackColor = Color.White.copy(alpha = 0.3f))
+                        modifier = Modifier.weight(1f).height(2.5.dp).clip(RoundedCornerShape(2.dp)), color = Color.White, trackColor = Color.White.copy(alpha = 0.35f))
                 }
             }
-            Text(memory.title, color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp))
+            Text(memory.title, color = Color.White, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 14.dp, start = 6.dp))
+            Text(dateRange(items.first().takenAt, items.last().takenAt), color = Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 6.dp))
         }
     }
 }

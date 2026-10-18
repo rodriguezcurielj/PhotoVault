@@ -8,12 +8,23 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.automirrored.filled.ArrowBackIos
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.IosShare
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -123,52 +134,91 @@ fun ViewerScreen(s: Screen.Viewer) {
     val inTrash = current.trashed || current.remote?.trashedAt != null && current.local == null
     val locked = s.lockedPassword != null
 
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
-        HorizontalPager(pager, userScrollEnabled = !zoomed, beyondViewportPageCount = 1, key = { items[it].key }, modifier = Modifier.fillMaxSize()) { page ->
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    // Apple Photos: white around the photo with the bars showing, black when you tap them away.
+    val bg by androidx.compose.animation.animateColorAsState(if (chrome && !dark) Color.White else Color.Black, label = "bg")
+    val fg = if (chrome && !dark) Color.Black else Color.White
+    var dragY by remember { mutableFloatStateOf(0f) }
+    val strip = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(pager.currentPage) { strip.animateScrollToItem(maxOf(0, pager.currentPage - 4)) }
+    val barBg = if (dark) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.92f)
+
+    Box(Modifier.fillMaxSize().background(bg.copy(alpha = 1f - (kotlin.math.abs(dragY) / 900f).coerceIn(0f, 0.7f)))
+        // Swipe down to close, swipe up for info.
+        .pointerInput(zoomed) {
+            if (zoomed) return@pointerInput
+            detectVerticalDragGestures(
+                onDragEnd = { if (dragY > 220f) app.pop() else if (dragY < -160f) info = true; dragY = 0f },
+                onDragCancel = { dragY = 0f },
+            ) { _, dy -> dragY += dy }
+        }) {
+        HorizontalPager(pager, userScrollEnabled = !zoomed, beyondViewportPageCount = 1, key = { items[it].key },
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                translationY = dragY.coerceAtLeast(0f)
+                val k = 1f - (dragY.coerceAtLeast(0f) / 3000f); scaleX = k; scaleY = k
+            }) { page ->
             val item = items[page]
             if (item.isVideo) VideoPage(item, page == pager.currentPage) { chrome = !chrome }
             else ZoomableImage(item, onTap = { chrome = !chrome }, onZoom = { if (page == pager.currentPage) zoomed = it })
         }
         AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
-            Row(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.6f), Color.Transparent))).statusBarsPadding().padding(4.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { app.pop() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White) }
-                Column(Modifier.weight(1f)) {
-                    Text(dayLabel(current.date), color = Color.White, style = MaterialTheme.typography.titleSmall)
-                    Text(SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(current.date)), color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.bodySmall)
+            Box(Modifier.fillMaxWidth().background(barBg).statusBarsPadding().padding(horizontal = 4.dp, vertical = 2.dp)) {
+                IconButton(onClick = { app.pop() }, modifier = Modifier.align(Alignment.CenterStart)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBackIos, "Back", tint = Ios.blue, modifier = Modifier.size(20.dp))
                 }
-                Icon(when { current.cloudOnly -> Icons.Filled.Cloud; current.backedUp -> Icons.Filled.CloudDone; else -> Icons.Filled.CloudUpload },
-                    null, tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.padding(horizontal = 8.dp).size(20.dp))
-                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "More", tint = Color.White) }
-                DropdownMenu(menu, { menu = false }) {
-                    DropdownMenuItem({ Text("Add to album") }, { menu = false; albumPicker = true })
-                    if (s.albumId != null && current.remote != null) DropdownMenuItem({ Text("Use as album cover") }, { menu = false; app.run { Repo.api.setAlbumCover(s.albumId, current.remote.id); Repo.refreshExtras(); "Cover updated" } })
-                    if (current.local != null && current.remote == null) DropdownMenuItem({ Text("Back up now") }, { menu = false; app.run { app.actions.ensureRemote(listOf(current)); "Backed up" } })
-                    if (current.cloudOnly) DropdownMenuItem({ Text("Save to this phone") }, { menu = false; app.run { app.actions.saveToDevice(listOf(current)) } })
-                    if (current.local != null && !current.isVideo) DropdownMenuItem({ Text("Use as wallpaper") }, { menu = false; app.actions.setWallpaper(current) })
-                    if (current.local != null) DropdownMenuItem({ Text("Open with…") }, { menu = false; app.actions.openWith(current) })
-                    DropdownMenuItem({ Text("Edit date & time") }, { menu = false; datePrompt = true })
-                    if (current.remote?.archived == true) DropdownMenuItem({ Text("Unarchive") }, { menu = false; app.run { app.actions.archive(listOf(current), false) } })
-                    else if (!locked) DropdownMenuItem({ Text("Archive") }, { menu = false; app.run { app.actions.archive(listOf(current), true) } })
-                    if (locked) DropdownMenuItem({ Text("Move out of locked folder") }, { menu = false; app.run { app.actions.unlock(listOf(current.remote!!.id), s.lockedPassword!!).also { removed = removed + current.key } } })
-                    else DropdownMenuItem({ Text("Move to locked folder") }, { menu = false; lockPrompt = true })
-                    if (current.backedUp) DropdownMenuItem({ Text("Delete from this phone only") }, { menu = false; app.run { app.actions.freeUpSpace(listOf(current)) } })
+                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(dayLabel(current.date), color = fg, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, fontSize = 16.sp)
+                    Text(SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(current.date)) + (current.remote?.city?.let { " · $it" } ?: ""),
+                        color = Ios.gray, fontSize = 12.sp)
+                }
+                Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
+                    if (!current.isVideo && !inTrash && !locked) Text("Edit", color = Ios.blue, fontSize = 17.sp,
+                        modifier = Modifier.clickable { app.push(Screen.Editor(current)) }.padding(horizontal = 8.dp, vertical = 10.dp))
+                    Box {
+                        IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreHoriz, "More", tint = Ios.blue) }
+                        DropdownMenu(menu, { menu = false }) {
+                            DropdownMenuItem({ Text("Add to Album") }, { menu = false; albumPicker = true })
+                            if (s.albumId != null && current.remote != null) DropdownMenuItem({ Text("Make Key Photo") }, { menu = false; app.run { Repo.api.setAlbumCover(s.albumId, current.remote.id); Repo.refreshExtras(); "Key photo updated" } })
+                            if (current.local != null && current.remote == null) DropdownMenuItem({ Text("Back Up Now") }, { menu = false; app.run { app.actions.ensureRemote(listOf(current)); "Backed up" } })
+                            if (current.cloudOnly) DropdownMenuItem({ Text("Save to This Phone") }, { menu = false; app.run { app.actions.saveToDevice(listOf(current)) } })
+                            if (current.local != null && !current.isVideo) DropdownMenuItem({ Text("Use as Wallpaper") }, { menu = false; app.actions.setWallpaper(current) })
+                            if (current.local != null) DropdownMenuItem({ Text("Open With…") }, { menu = false; app.actions.openWith(current) })
+                            DropdownMenuItem({ Text("Adjust Date & Time") }, { menu = false; datePrompt = true })
+                            if (current.remote?.archived == true) DropdownMenuItem({ Text("Unarchive") }, { menu = false; app.run { app.actions.archive(listOf(current), false) } })
+                            else if (!locked) DropdownMenuItem({ Text("Archive") }, { menu = false; app.run { app.actions.archive(listOf(current), true) } })
+                            if (locked) DropdownMenuItem({ Text("Unhide") }, { menu = false; app.run { app.actions.unlock(listOf(current.remote!!.id), s.lockedPassword!!).also { removed = removed + current.key } } })
+                            else DropdownMenuItem({ Text("Hide") }, { menu = false; lockPrompt = true })
+                            if (current.backedUp) DropdownMenuItem({ Text("Remove from This Phone Only") }, { menu = false; app.run { app.actions.freeUpSpace(listOf(current)) } })
+                        }
+                    }
                 }
             }
         }
-        AnimatedVisibility(chrome && !locked, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
-            Row(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))).navigationBarsPadding().padding(vertical = 8.dp),
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceEvenly) {
-                if (inTrash) {
-                    ViewerButton(Icons.Filled.Restore, "Restore") { app.run { app.actions.restore(listOf(current)) } }
-                    ViewerButton(Icons.Filled.Delete, "Delete") { confirmDelete = true }
-                } else {
-                    ViewerButton(Icons.Filled.Share, "Share") { app.run { app.actions.share(listOf(current)); null } }
-                    if (!current.isVideo) ViewerButton(Icons.Filled.Edit, "Edit") { app.push(Screen.Editor(current)) }
-                    ViewerButton(if (current.favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, "Favorite",
-                        tint = if (current.favorite) Color(0xFFFF6B81) else Color.White) { app.run { app.actions.favorite(listOf(current), !current.favorite); null } }
-                    ViewerButton(Icons.Filled.Info, "Info") { info = true }
-                    ViewerButton(Icons.Filled.Delete, "Delete") { confirmDelete = true }
+        AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
+            Column(Modifier.fillMaxWidth().background(barBg).navigationBarsPadding()) {
+                // Filmstrip scrubber.
+                if (items.size > 1) androidx.compose.foundation.lazy.LazyRow(state = strip, modifier = Modifier.fillMaxWidth().height(44.dp).padding(vertical = 4.dp),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(1.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp)) {
+                    items(items.size, key = { items[it].key }) { i ->
+                        val on = i == pager.currentPage
+                        Box(Modifier.width(if (on) 52.dp else 26.dp).fillMaxHeight().clickable { scope.launch { pager.scrollToPage(i) } }
+                            .padding(horizontal = if (on) 4.dp else 0.dp)) {
+                            AsyncImage(model = thumbModel(items[i]), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceAround, verticalAlignment = Alignment.CenterVertically) {
+                    if (inTrash) {
+                        Text("Delete", color = Ios.red, fontSize = 17.sp, modifier = Modifier.clickable { confirmDelete = true }.padding(12.dp))
+                        Text("Recover", color = Ios.blue, fontSize = 17.sp, modifier = Modifier.clickable { app.run { app.actions.restore(listOf(current)) } }.padding(12.dp))
+                    } else {
+                        ViewerButton(Icons.Outlined.IosShare, "Share") { app.run { app.actions.share(listOf(current)); null } }
+                        ViewerButton(if (current.favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, "Favorite") { app.run { app.actions.favorite(listOf(current), !current.favorite); null } }
+                        ViewerButton(Icons.Outlined.Info, "Info") { info = true }
+                        ViewerButton(Icons.Outlined.Delete, "Delete") { confirmDelete = true }
+                    }
                 }
             }
         }
@@ -176,9 +226,9 @@ fun ViewerScreen(s: Screen.Viewer) {
 
     if (info) ModalBottomSheet(onDismissRequest = { info = false }) { InfoSheet(current) }
     if (confirmDelete) {
-        if (inTrash) ConfirmDialog("Delete forever?", "This can't be undone.", "Delete", { confirmDelete = false }) {
+        if (inTrash) ConfirmDialog("Delete Forever?", "This can't be undone.", "Delete", { confirmDelete = false }) {
             app.run { app.actions.deleteForever(listOf(current)).also { removed = removed + current.key } }
-        } else ConfirmDialog("Move to trash?", "Removes it from this phone and your PhotoVault server. You can restore it from Trash for 30 days.", "Move to trash", { confirmDelete = false }) {
+        } else ConfirmDialog("Delete Photo?", "It will be removed from this phone and your PhotoVault server, and kept in Recently Deleted for 30 days.", "Delete", { confirmDelete = false }) {
             app.run { app.actions.trash(listOf(current)).also { if (!it.startsWith("Cancel")) removed = removed + current.key } }
         }
     }
@@ -191,8 +241,8 @@ fun ViewerScreen(s: Screen.Viewer) {
 }
 
 @Composable
-private fun ViewerButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, tint: Color = Color.White, onClick: () -> Unit) {
-    IconButton(onClick = onClick) { Icon(icon, label, tint = tint) }
+private fun ViewerButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    IconButton(onClick = onClick) { Icon(icon, label, tint = Ios.blue, modifier = Modifier.size(26.dp)) }
 }
 
 /** Pinch / double-tap zoom. Only takes over the touch when zoomed or using two fingers, so swiping still changes photos. */

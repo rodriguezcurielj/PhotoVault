@@ -31,6 +31,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Favorite
@@ -64,6 +65,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -103,72 +106,81 @@ fun dayKey(t: Long): Int { val c = Calendar.getInstance().apply { timeInMillis =
 fun thumbModel(item: MediaItem): Any = item.local?.let { LocalThumb(it.uri) } ?: Repo.api.thumbUrl(item.remote!!.id)
 
 // ---------------------------------------------------------------- grid
-private sealed interface Entry {
-    data class Month(val label: String) : Entry
-    data class Day(val label: String, val key: Int, val keys: List<String>, val place: String?) : Entry
-    data class Cell(val item: MediaItem, val index: Int) : Entry
-}
-
 class Selection {
     var keys by mutableStateOf(setOf<String>())
-    val active get() = keys.isNotEmpty()
-    fun toggle(k: String) { keys = if (k in keys) keys - k else keys + k }
-    fun clear() { keys = emptySet() }
+    /** "Select" mode, like Apple Photos: on before anything is picked. */
+    var mode by mutableStateOf(false)
+    val active get() = mode || keys.isNotEmpty()
+    fun toggle(k: String) { keys = if (k in keys) keys - k else keys + k; mode = true }
+    fun clear() { keys = emptySet(); mode = false }
     fun items(all: List<MediaItem>) = all.filter { it.key in keys }
 }
 
+// Grids that have already jumped to the newest photo once.
+private val positioned = java.util.Collections.newSetFromMap(java.util.WeakHashMap<LazyGridState, Boolean>())
+
+/** "Oct 12 – 17, 2026" for a span of time. */
+fun dateRange(a: Long, b: Long): String {
+    val from = minOf(a, b)
+    val to = maxOf(a, b)
+    val f = Calendar.getInstance().apply { timeInMillis = from }
+    val t = Calendar.getInstance().apply { timeInMillis = to }
+    val loc = Locale.getDefault()
+    fun fmt(p: String, x: Long) = SimpleDateFormat(p, loc).format(Date(x))
+    return when {
+        dayKey(from) == dayKey(to) -> fmt("MMM d, yyyy", from)
+        f.get(Calendar.YEAR) != t.get(Calendar.YEAR) -> fmt("MMM yyyy", from) + " – " + fmt("MMM yyyy", to)
+        f.get(Calendar.MONTH) != t.get(Calendar.MONTH) -> fmt("MMM d", from) + " – " + fmt("MMM d, yyyy", to)
+        else -> fmt("MMM d", from) + " – " + fmt("d, yyyy", to)
+    }
+}
+
+/** Date range of the photos on screen, for the big title overlay. */
+fun visibleRange(state: LazyGridState, display: List<MediaItem>): String? {
+    val info = state.layoutInfo.visibleItemsInfo
+    if (info.isEmpty() || display.isEmpty()) return null
+    val first = display.getOrNull(info.first().index) ?: return null
+    val last = display.getOrNull(info.last().index) ?: return null
+    return dateRange(first.date, last.date)
+}
+
 /**
- * Photo grid with day headers, pinch to change size, long-press to select, and a fast scroller.
- * [header] is shown above everything (e.g. memories).
+ * Apple Photos–style grid: oldest at the top, opens scrolled to the newest at the bottom,
+ * square tiles with hairline gaps, pinch to change the number of columns, tap "Select" or long-press to pick.
+ * [items] come newest-first; [onOpen] gets the on-screen (oldest-first) list.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MediaGrid(
     items: List<MediaItem>,
     selection: Selection,
-    onOpen: (Int) -> Unit,
+    onOpen: (List<MediaItem>, Int) -> Unit,
     modifier: Modifier = Modifier,
-    groupByDay: Boolean = true,
     state: LazyGridState = rememberLazyGridState(),
-    contentPadding: PaddingValues = PaddingValues(bottom = 96.dp),
-    header: (@Composable () -> Unit)? = null,
-    empty: @Composable () -> Unit = { EmptyState("Nothing here", "") },
+    contentPadding: PaddingValues = PaddingValues(top = 120.dp, bottom = 140.dp),
+    newestAtBottom: Boolean = true,
+    empty: @Composable () -> Unit = { EmptyState("No Photos", "") },
 ) {
     var columns by remember { mutableStateOf(Repo.prefs.columns) }
-    val entries = remember(items, groupByDay) {
-        val out = ArrayList<Entry>(items.size + items.size / 4)
-        if (!groupByDay) items.forEachIndexed { i, it -> out += Entry.Cell(it, i) }
-        else {
-            var lastMonth = ""
-            var lastDay = -1
-            items.forEachIndexed { i, it ->
-                val m = monthLabel(it.date)
-                if (m != lastMonth) { out += Entry.Month(m); lastMonth = m; lastDay = -1 }
-                val d = dayKey(it.date)
-                if (d != lastDay) {
-                    var end = i
-                    while (end < items.size && dayKey(items[end].date) == d) end++
-                    val dayItems = items.subList(i, end)
-                    out += Entry.Day(dayLabel(it.date), d, dayItems.map { x -> x.key }, dayItems.firstNotNullOfOrNull { x -> x.remote?.city })
-                    lastDay = d
-                }
-                out += Entry.Cell(it, i)
-            }
+    val display = remember(items, newestAtBottom) { if (newestAtBottom) items.asReversed() else items }
+    LaunchedEffect(display.isNotEmpty()) {
+        if (display.isNotEmpty() && newestAtBottom && state !in positioned) {
+            positioned += state
+            state.scrollToItem(display.size - 1)
         }
-        out
     }
-    if (items.isEmpty() && header == null) { empty(); return }
+    if (items.isEmpty()) { Box(modifier.fillMaxSize().padding(contentPadding)) { empty() }; return }
 
     Box(modifier.fillMaxSize()) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns),
             state = state,
             contentPadding = contentPadding,
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(1.5.dp),
+            verticalArrangement = Arrangement.spacedBy(1.5.dp),
             modifier = Modifier
                 .fillMaxSize()
-                // Pinch with two fingers to change how many photos fit in a row.
+                // Pinch with two fingers to zoom the grid in or out (1, 3, 5 or 9 across).
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
@@ -177,70 +189,49 @@ fun MediaGrid(
                             val ev = awaitPointerEvent(PointerEventPass.Initial)
                             if (ev.changes.count { it.pressed } >= 2) {
                                 zoom *= ev.calculateZoom()
-                                if (zoom > 1.3f && columns > 2) { columns--; zoom = 1f; Repo.prefs.columns = columns }
-                                else if (zoom < 0.75f && columns < 8) { columns++; zoom = 1f; Repo.prefs.columns = columns }
+                                if (zoom > 1.3f && columns > 1) {
+                                    columns = when { columns > 5 -> 5; columns > 3 -> 3; else -> 1 }
+                                    zoom = 1f; Repo.prefs.columns = columns
+                                } else if (zoom < 0.75f && columns < 9) {
+                                    columns = when { columns < 3 -> 3; columns < 5 -> 5; else -> 9 }
+                                    zoom = 1f; Repo.prefs.columns = columns
+                                }
                                 ev.changes.forEach { it.consume() }
                             }
                         } while (ev.changes.any { it.pressed })
                     }
                 },
         ) {
-            if (header != null) item(span = { GridItemSpan(maxLineSpan) }, key = "header") { header() }
-            if (items.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) { empty() }
-            for (e in entries) when (e) {
-                is Entry.Month -> item(span = { GridItemSpan(maxLineSpan) }, key = "m" + e.label, contentType = "month") {
-                    Text(e.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(start = 14.dp, top = 22.dp, bottom = 2.dp))
-                }
-                is Entry.Day -> item(span = { GridItemSpan(maxLineSpan) }, key = "d" + e.key, contentType = "day") {
-                    val all = e.keys.all { it in selection.keys }
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (selection.active) {
-                            Icon(if (all) Icons.Filled.CheckCircle else Icons.Outlined.Circle, null,
-                                tint = if (all) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(22.dp).clip(CircleShape).combinedClickable(onClick = {
-                                    selection.keys = if (all) selection.keys - e.keys.toSet() else selection.keys + e.keys
-                                }))
-                            Spacer(Modifier.width(8.dp))
-                        }
-                        Text(e.label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.weight(1f))
-                        if (e.place != null) Text(e.place, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                is Entry.Cell -> item(key = e.item.key, contentType = "cell") {
-                    Tile(e.item, e.item.key in selection.keys, selection.active,
-                        onClick = { if (selection.active) selection.toggle(e.item.key) else onOpen(e.index) },
-                        onLongClick = { selection.toggle(e.item.key) })
-                }
+            items(display.size, key = { display[it].key }, contentType = { "cell" }) { i ->
+                val item = display[i]
+                Tile(item, item.key in selection.keys, selection.active, fit = columns == 1,
+                    onClick = { if (selection.active) selection.toggle(item.key) else onOpen(display, i) },
+                    onLongClick = { selection.toggle(item.key) })
             }
         }
-        if (items.size > 60) FastScroller(state, entries.size, { idx ->
-            // Find the month label for the item nearest this scroll position.
-            var i = idx.coerceIn(0, entries.size - 1)
-            while (i > 0 && entries[i] !is Entry.Cell) i--
-            (entries.getOrNull(i) as? Entry.Cell)?.let { monthLabel(it.item.date) } ?: ""
-        }, Modifier.align(Alignment.CenterEnd))
+        if (display.size > 60) FastScroller(state, display.size, { idx -> monthLabel(display[idx.coerceIn(0, display.size - 1)].date) },
+            Modifier.align(Alignment.CenterEnd).padding(contentPadding))
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun Tile(item: MediaItem, selected: Boolean, selecting: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
-    val scale = if (selected) 0.86f else 1f
-    Box(Modifier.aspectRatio(1f).background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
+fun Tile(item: MediaItem, selected: Boolean, selecting: Boolean, fit: Boolean = false, onClick: () -> Unit, onLongClick: () -> Unit) {
+    Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceVariant)
         .combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
-        AsyncImage(model = thumbModel(item), contentDescription = null, contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize().scale(scale).clip(RoundedCornerShape(if (selected) 10.dp else 0.dp)))
-        if (item.isVideo) Row(Modifier.align(Alignment.TopEnd).padding(5.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(fmtDuration(item.durationMs), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            Icon(Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(16.dp))
+        AsyncImage(model = thumbModel(item), contentDescription = null, contentScale = if (fit) ContentScale.Fit else ContentScale.Crop,
+            modifier = Modifier.fillMaxSize())
+        if (selected) Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.28f)))
+        val shadow = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 4f))
+        if (item.isVideo) Text(fmtDuration(item.durationMs), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, style = shadow,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 5.dp, bottom = 3.dp))
+        if (item.favorite) Icon(Icons.Filled.Favorite, null, tint = Color.White, modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).size(13.dp))
+        if (item.cloudOnly && !selecting) Icon(Icons.Filled.CloudQueue, null, tint = Color.White.copy(alpha = 0.85f),
+            modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(13.dp))
+        if (selected) Box(Modifier.align(Alignment.BottomEnd).padding(5.dp).size(22.dp).background(Color.White, CircleShape).padding(1.5.dp)
+            .background(Ios.blue, CircleShape), contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
         }
-        if (item.favorite) Icon(Icons.Filled.Favorite, null, tint = Color.White, modifier = Modifier.align(Alignment.BottomStart).padding(5.dp).size(15.dp))
-        if (item.cloudOnly) Icon(Icons.Filled.CloudQueue, null, tint = Color.White.copy(alpha = 0.9f), modifier = Modifier.align(Alignment.BottomEnd).padding(5.dp).size(15.dp))
-        if (selecting) Icon(if (selected) Icons.Filled.CheckCircle else Icons.Outlined.Circle, null,
-            tint = if (selected) MaterialTheme.colorScheme.primary else Color.White,
-            modifier = Modifier.align(Alignment.TopStart).padding(6.dp).size(22.dp).background(if (selected) Color.White else Color.Transparent, CircleShape))
     }
 }
 
@@ -259,8 +250,8 @@ private fun FastScroller(state: LazyGridState, count: Int, labelAt: (Int) -> Str
         val y = ((h - handleH) * f).coerceIn(0f, h - handleH)
         val yDp = with(LocalDensity.current) { y.toDp() }
         if (scrolling) {
-            Box(Modifier.align(Alignment.TopEnd).offset(y = yDp).padding(end = 2.dp).size(28.dp, 44.dp)
-                .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp))
+            Box(Modifier.align(Alignment.TopEnd).offset(y = yDp).padding(end = 2.dp).size(26.dp, 44.dp)
+                .background(Ios.bar, RoundedCornerShape(13.dp))
                 .pointerInput(count) {
                     detectVerticalDragGestures(
                         onDragStart = { dragging = true; dragFraction = fraction },
@@ -271,11 +262,10 @@ private fun FastScroller(state: LazyGridState, count: Int, labelAt: (Int) -> Str
                         dragFraction = (dragFraction + dy / (h - handleH)).coerceIn(0f, 1f)
                         scope.launch { state.scrollToItem((dragFraction * (count - 1)).toInt()) }
                     }
-                })
-            if (dragging) Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-44).dp, y = yDp + 6.dp)) {
-                Text(labelAt((dragFraction * (count - 1)).toInt()), color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge)
+                }, contentAlignment = Alignment.Center) { Text("⇕", color = Ios.gray) }
+            if (dragging) Surface(shape = RoundedCornerShape(20.dp), color = Ios.bar,
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = (-40).dp, y = yDp + 6.dp)) {
+                Text(labelAt((dragFraction * (count - 1)).toInt()), modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge)
             }
         }
     }

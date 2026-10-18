@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.Settings
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -118,8 +119,8 @@ fun SettingsScreen() {
     }
     fun reschedule() = BackupWorker.schedule(ctx)
 
-    Column(Modifier.fillMaxSize()) {
-        BackTopBar("Settings")
+    Column(Modifier.fillMaxSize().background(Ios.grouped)) {
+        TitleOverlay("Settings", null, onPhotos = false, onBack = { app.pop() })
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 40.dp)) {
             SectionTitle("Backup")
             Text(when {
