@@ -134,6 +134,7 @@ $('content').addEventListener('wheel', e => {
   applyTileSize();
 }, { passive: false });
 
+function groupKey(t) { const d = new Date(t); return `${d.getFullYear()}-${d.getMonth()}`; }
 function dayKey(t) { const d = new Date(t); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; }
 function dayLabel(t) {
   const d = new Date(t), today = new Date();
@@ -162,19 +163,25 @@ function renderGrid(container, list, { groups = true, empty } = {}) {
     list.forEach(a => grid.append(tileFor(a)));
     frag.append(grid);
   } else {
-    let dayEl = null;
+    // Apple Photos style: one continuous grid per month, titled with the month and its places.
+    let places = null;
     for (const a of list) {
-      const d = new Date(a.takenAt);
-      const month = d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-      if (month !== lastMonth) { frag.append(h('div', { class: 'month' }, month)); lastMonth = month; lastDay = null; }
-      const dk = dayKey(a.takenAt);
-      if (dk !== lastDay) {
-        const head = h('div', { class: 'dayhead' }, h('div', { class: 'check', 'data-day': dk }, '✓'), dayLabel(a.takenAt), h('span', { class: 'grow' }),
-          a.city ? h('span', {}, a.city) : null);
+      const mk = groupKey(a.takenAt);
+      if (mk !== lastDay) {
+        const d = new Date(a.takenAt);
+        const month = d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+        places = h('div', { class: 'places' });
+        const head = h('div', { class: 'dayhead' },
+          h('div', { class: 'grow' }, h('div', { class: 'month' }, month), places),
+          h('div', { class: 'check', 'data-day': mk }, '✓'));
         grid = h('div', { class: 'grid' });
-        dayEl = h('div', { class: 'day', 'data-day': dk }, head, grid);
-        frag.append(dayEl);
-        lastDay = dk;
+        frag.append(h('div', { class: 'day', 'data-day': mk }, head, grid));
+        places._seen = [];
+        lastDay = mk;
+      }
+      if (a.city && !places._seen.includes(a.city) && places._seen.length < 3) {
+        places._seen.push(a.city);
+        places.textContent = places._seen.join(' · ');
       }
       grid.append(tileFor(a));
     }
@@ -184,7 +191,7 @@ function renderGrid(container, list, { groups = true, empty } = {}) {
   container.onclick = e => {
     const dayCheck = e.target.closest('.dayhead .check');
     if (dayCheck) {
-      const dayList = list.filter(a => dayKey(a.takenAt) === dayCheck.dataset.day);
+      const dayList = list.filter(a => groupKey(a.takenAt) === dayCheck.dataset.day);
       const allOn = dayList.every(a => state.sel.has(a.id));
       dayList.forEach(a => (allOn ? state.sel.delete(a.id) : state.sel.add(a.id)));
       syncSelection();

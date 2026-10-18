@@ -63,8 +63,10 @@ input[type=text], input[type=password], input[type=search], select, textarea {
 /* timeline */
 h2.section { font-size: 22px; margin: 24px 4px 10px; font-weight: 700; }
 .month { font-size: 28px; font-weight: 700; letter-spacing: .2px; margin: 26px 4px 4px; }
-.day { content-visibility: auto; contain-intrinsic-size: auto 300px; }
-.dayhead { display: flex; align-items: center; gap: 8px; margin: 12px 4px 6px; color: var(--muted); font-size: 13px; }
+.day { content-visibility: auto; contain-intrinsic-size: auto 600px; }
+.dayhead { display: flex; align-items: flex-end; gap: 8px; margin: 26px 4px 8px; }
+.dayhead .month { margin: 0; }
+.dayhead .places { color: var(--muted); font-size: 14px; margin-top: 2px; }
 .dayhead .check { opacity: 0; }
 .day:hover .dayhead .check, .selecting .dayhead .check { opacity: 1; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--tile, 180px), 1fr)); gap: 2px; }
