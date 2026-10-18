@@ -376,6 +376,31 @@ app.post('/api/albums/:id/share', requireAuth, (req, res) => {
   res.json({ shareToken: token });
 });
 
+// ----- map tiles -----
+// The server fetches OpenStreetMap tiles itself (OSM blocks requests without a proper app ID or
+// referrer, which browsers and WebViews often don't send) and keeps them on disk, so maps load
+// fast and keep working for places you've already looked at.
+const TILE_DIR = path.join(cfg.DATA_DIR, 'tilecache');
+app.get('/tiles/:z/:x/:y.png', async (req, res) => {
+  const [z, x, y] = [req.params.z, req.params.x, req.params.y].map(Number);
+  if (![z, x, y].every(Number.isInteger) || z < 0 || z > 19 || x < 0 || y < 0 || x >= 2 ** z || y >= 2 ** z) return res.status(400).end();
+  const file = path.join(TILE_DIR, String(z), String(x), `${y}.png`);
+  if (fs.existsSync(file)) return res.sendFile(file, { maxAge: '30d' });
+  try {
+    const r = await fetch(`https://tile.openstreetmap.org/${z}/${x}/${y}.png`, {
+      headers: { 'User-Agent': 'PhotoVault/2 (self-hosted personal photo library)' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!r.ok) return res.status(r.status).end();
+    const buf = Buffer.from(await r.arrayBuffer());
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, buf);
+    res.type('png').set('Cache-Control', 'public, max-age=2592000').send(buf);
+  } catch {
+    res.status(502).end();
+  }
+});
+
 // ----- public shared albums (no login; only items in that album) -----
 function sharedAlbum(req, res) {
   const al = db.prepare('SELECT * FROM albums WHERE share_token = ?').get(String(req.params.token));

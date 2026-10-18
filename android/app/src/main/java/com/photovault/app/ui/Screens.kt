@@ -557,32 +557,31 @@ fun MapScreen() {
     }
 }
 
-/** Apple Maps–like look: CARTO "Voyager" tiles (light) / "Dark Matter" (dark), rounded photo pins with a count badge. */
+/** OpenStreetMap tiles served (and cached) by your PhotoVault server, rounded photo pins with a count badge. */
 private fun mapHtml(data: String, dark: Boolean) = """
 <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
-<style>html,body,#m{margin:0;height:100%;background:${if (dark) "#1c1c1e" else "#f2f2f7"}}
+<style>#m{position:fixed;inset:0} html,body,#m{margin:0;background:${if (dark) "#1c1c1e" else "#f2f2f7"}}
 .t{width:56px;height:56px;border-radius:12px;border:3px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.35);object-fit:cover;background:#ddd;display:block}
 .p{position:relative}.p:after{content:'';position:absolute;left:50%;bottom:-7px;margin-left:-7px;border:7px solid transparent;border-bottom:0;border-top-color:#fff}
 .c{position:absolute;right:-9px;top:-9px;background:#007aff;color:#fff;border-radius:11px;padding:2px 7px;font:600 12px -apple-system,Roboto,sans-serif;border:2px solid #fff}
-.leaflet-control-attribution{font-size:9px}</style></head>
+.leaflet-control-attribution{font-size:9px}${if (dark) ".leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.85) contrast(.9)}" else ""}</style></head>
 <body><div id="m"></div>
+<script>window.L_DISABLE_3D = true; // plain positioning: some WebViews skip drawing 3D layers</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js"></script>
 <script>
-console.log('map start', typeof L, innerWidth, innerHeight);
 const pts = $data;
 const map = L.map('m', {zoomControl:false}).setView([20,0],2);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/${if (dark) "dark_all" else "rastertiles/voyager"}/{z}/{x}/{y}{r}.png',
-  {maxZoom:19, subdomains:'abcd', attribution:'© OpenStreetMap © CARTO'}).addTo(map);
+L.tileLayer('/tiles/{z}/{x}/{y}.png', {maxZoom:19, attribution:'© OpenStreetMap'}).addTo(map);
 const icon = (t, n) => L.divIcon({html:'<div class="p"><img class="t" src="'+t+'">'+(n>1?'<span class="c">'+n+'</span>':'')+'</div>', className:'', iconSize:[56,63], iconAnchor:[28,63]});
 const cl = L.markerClusterGroup({iconCreateFunction: c => icon(c.getAllChildMarkers()[0].p.t, c.getChildCount()), zoomToBoundsOnClick:false, showCoverageOnHover:false, maxClusterRadius:70});
 pts.forEach(p => { const m = L.marker([p.lat,p.lon],{icon:icon(p.t,1)}); m.p = p; m.on('click',()=>Android.open(String(p.i))); cl.addLayer(m); });
 cl.on('clusterclick', e => { if (map.getZoom() >= 15) Android.open(e.layer.getAllChildMarkers().map(m=>m.p.i).join(',')); else e.layer.zoomToBounds({padding:[40,40]}); });
 map.addLayer(cl);
 // The WebView can start at zero size; re-measure once it has its real size, then frame all the photos.
-const frame = () => { const ts=[...document.querySelectorAll('.leaflet-tile')]; console.log('frame', innerWidth, innerHeight, 'tiles', ts.length, ts.filter(t=>t.complete&&t.naturalWidth).length, 'pins', document.querySelectorAll('.t').length, getComputedStyle(document.getElementById('m')).backgroundColor, document.getElementById('m').offsetHeight, ts[0]&&ts[0].src); map.invalidateSize(); if (innerHeight > 0) map.fitBounds(cl.getBounds(), {padding:[60,60], maxZoom:12}); };
+const frame = () => {  map.invalidateSize(); if (innerHeight > 0) map.fitBounds(cl.getBounds(), {padding:[60,60], maxZoom:12}); };
 addEventListener('resize', () => map.invalidateSize());
 frame(); setTimeout(frame, 300); setTimeout(frame, 1200);
 </script></body></html>

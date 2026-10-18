@@ -174,3 +174,6 @@ h2.section { font-size: 22px; margin: 24px 4px 10px; font-weight: 700; }
 #editor .filter { width: 76px; text-align: center; font-size: 12px; cursor: pointer; }
 #editor .filter canvas { width: 76px; height: 76px; border-radius: 8px; object-fit: cover; border: 2px solid transparent; }
 #editor .filter.on canvas { border-color: var(--accent); }
+
+/* dark map: invert OpenStreetMap's colours */
+@media (prefers-color-scheme: dark) { .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9); } }

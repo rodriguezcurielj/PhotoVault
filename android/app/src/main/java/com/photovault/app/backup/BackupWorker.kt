@@ -41,7 +41,8 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         val failed = Repo.backupDb.failedIds()
         val pending = Repo.local.value.filter { item ->
             val b = backed[item.id]
-            (b == null || b.size != item.size) && item.id !in failed &&
+            // Also re-check items whose server copy is gone (e.g. deleted on the server or a different server).
+            (b == null || b.size != item.size || b.remoteId !in Repo.remote.value) && item.id !in failed &&
                 item.bucketId !in prefs.excludedBuckets && (prefs.backupVideos || !item.isVideo)
         }.sortedByDescending { it.dateTaken }
         if (pending.isEmpty()) { Repo.backup.value = Repo.backup.value.copy(running = false, pending = 0); return Result.success() }
