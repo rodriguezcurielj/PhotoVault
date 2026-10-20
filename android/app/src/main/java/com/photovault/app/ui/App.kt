@@ -35,6 +35,7 @@ sealed interface Screen {
     data object Settings : Screen
     data object FreeUp : Screen
     data object Folders : Screen
+    data object Import : Screen
     data class Story(val memory: Memory) : Screen
 }
 
@@ -97,6 +98,7 @@ fun App(actions: Actions, initial: Screen? = null, onExit: (() -> Unit)? = null)
                     Screen.Settings -> SettingsScreen()
                     Screen.FreeUp -> FreeUpScreen()
                     Screen.Folders -> FoldersScreen()
+                    Screen.Import -> ImportScreen()
                     is Screen.Story -> StoryScreen(s.memory)
                 }
             }

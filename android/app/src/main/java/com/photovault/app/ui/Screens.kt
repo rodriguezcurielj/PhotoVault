@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.CameraFront
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Map
@@ -283,6 +284,7 @@ fun AlbumsTab() {
                 Row3(Icons.Filled.VisibilityOff, "Hidden", null, locked = true) { app.push(Screen.Locked) },
                 Row3(Icons.Filled.Delete, "Recently Deleted", localTrash.size + all.count { it.local == null && it.remote?.trashedAt != null }) { app.push(Screen.Trash) },
                 Row3(Icons.Filled.CleaningServices, "Free Up Space", null) { app.push(Screen.FreeUp) },
+                Row3(Icons.Filled.CloudDownload, "Import from Google / Amazon Photos", null) { app.push(Screen.Import) },
             ))
         }
     }

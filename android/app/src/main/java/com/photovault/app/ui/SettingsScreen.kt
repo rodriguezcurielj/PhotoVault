@@ -144,6 +144,7 @@ fun SettingsScreen() {
             ToggleRow("Only on Wi-Fi", "Don't use mobile data for backup", wifi) { wifi = it; p.wifiOnly = it; reschedule() }
             ToggleRow("Only while charging", null, charging) { charging = it; p.chargingOnly = it; reschedule() }
             SettingRow("Free up space", "Remove phone copies that are already backed up") { app.push(Screen.FreeUp) }
+            SettingRow("Import from Google Photos or Amazon Photos", "Upload a Google Takeout or Amazon Photos .zip") { app.push(Screen.Import) }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
             SectionTitle("Make Gallery your default gallery")

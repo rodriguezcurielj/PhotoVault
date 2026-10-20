@@ -173,6 +173,27 @@ class Api(private val prefs: Prefs) {
 
     /** A no-password link to just these photos/videos. */
     suspend fun createLink(ids: List<Long>): String = JSONObject(call("POST", "/api/links", JSONObject().put("ids", JSONArray(ids)))).getString("token")
+    /** Sends a Google Takeout / Amazon Photos .zip; the server unpacks it in the background. */
+    suspend fun importZip(resolver: ContentResolver, uri: Uri, name: String, size: Long, onProgress: (Long) -> Unit) {
+        val fileBody = object : RequestBody() {
+            override fun contentType(): MediaType = "application/zip".toMediaType()
+            override fun contentLength() = if (size > 0) size else -1
+            override fun writeTo(sink: BufferedSink) {
+                (resolver.openInputStream(uri) ?: throw IOException("Can't read $name")).source().use { src ->
+                    var total = 0L
+                    while (true) {
+                        val n = src.read(sink.buffer, 256 * 1024)
+                        if (n == -1L) break
+                        total += n
+                        sink.emitCompleteSegments()
+                        onProgress(total)
+                    }
+                }
+            }
+        }
+        call("POST", "/api/import/zip", MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("file", name, fileBody).build())
+    }
+    suspend fun importStatus(): JSONObject = JSONObject(call("GET", "/api/import/status"))
     /** versionCode of the APK the server has, or null if it doesn't say. */
     suspend fun serverAppVersion(): Int? = runCatching { JSONObject(call("GET", "/app-version.json")).getInt("versionCode") }.getOrNull()
 
