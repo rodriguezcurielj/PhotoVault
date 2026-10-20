@@ -8,6 +8,7 @@ const path = require('path');
 const cfg = require('./config');
 const { db, getSetting, setSetting } = require('./db');
 const media = require('./media');
+const importer = require('./importer');
 
 // ---------- password + sessions ----------
 function hashPassword(pw, salt = crypto.randomBytes(16).toString('hex')) {
@@ -245,6 +246,16 @@ app.post('/api/upload', requireAuth, upload.array('files', 200), async (req, res
   res.json({ results });
 });
 
+// Google Photos (Takeout) / Amazon Photos exports: upload the .zip, it's unpacked in the background.
+const zipUpload = multer({ dest: cfg.UPLOAD_TMP, limits: { fileSize: 100 * 1024 ** 3 } });
+app.post('/api/import/zip', requireAuth, zipUpload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file' });
+  if (!/\.zip$/i.test(req.file.originalname)) { fs.rmSync(req.file.path, { force: true }); return res.status(400).json({ error: 'Pick a .zip file' }); }
+  importer.addZip(req.file.path, req.file.originalname);
+  res.json({ ok: true });
+});
+app.get('/api/import/status', requireAuth, (req, res) => res.json(importer.status));
+
 // ----- files -----
 function sendRendition(dir, req, res) {
   const a = getAsset(req.params.id);
@@ -279,7 +290,7 @@ function zipAssets(res, list, name) {
 }
 app.get('/api/download', requireAuth, (req, res) => {
   const list = ids(String(req.query.ids || '').split(',')).map(getAsset).filter(Boolean);
-  zipAssets(res, list, `PhotoVault-${new Date().toISOString().slice(0, 10)}.zip`);
+  zipAssets(res, list, `Gallery-${new Date().toISOString().slice(0, 10)}.zip`);
 });
 
 // ----- explore -----
@@ -422,27 +433,49 @@ app.get('/tiles/:z/:x/:y.png', async (req, res) => {
   }
 });
 
-// ----- public shared albums (no login; only items in that album) -----
-function sharedAlbum(req, res) {
-  const al = db.prepare('SELECT * FROM albums WHERE share_token = ?').get(String(req.params.token));
-  if (!al) { res.status(404).json({ error: 'This link no longer works' }); return null; }
-  return al;
+// ----- links for single photos/videos or a selection -----
+app.post('/api/links', requireAuth, (req, res) => {
+  const want = ids(req.body.ids).filter(id => getAsset(id));
+  if (!want.length) return res.status(400).json({ error: 'Nothing to share' });
+  const token = crypto.randomBytes(18).toString('base64url');
+  db.prepare('INSERT INTO links (token, created_at) VALUES (?, ?)').run(token, now());
+  const q = db.prepare('INSERT OR IGNORE INTO link_assets (token, asset_id) VALUES (?, ?)');
+  for (const id of want) q.run(token, id);
+  res.json({ token });
+});
+app.get('/api/links', requireAuth, (req, res) => {
+  res.json(db.prepare(`SELECT l.token, l.created_at, COUNT(la.asset_id) AS n, MAX(la.asset_id) AS cover
+    FROM links l LEFT JOIN link_assets la ON la.token = l.token GROUP BY l.token ORDER BY l.created_at DESC`).all()
+    .map(l => ({ token: l.token, createdAt: l.created_at, count: l.n, cover: l.cover })));
+});
+app.delete('/api/links/:token', requireAuth, (req, res) => {
+  db.prepare('DELETE FROM links WHERE token = ?').run(String(req.params.token));
+  res.json({ ok: true });
+});
+
+// ----- public share links (no login; only the items behind that link) -----
+const VISIBLE = 'a.trashed_at IS NULL AND a.locked = 0';
+function shared(req, res) {
+  const t = String(req.params.token);
+  const al = db.prepare('SELECT * FROM albums WHERE share_token = ?').get(t);
+  if (al) return { name: al.name, album: true, from: 'album_assets x JOIN assets a ON a.id = x.asset_id WHERE x.album_id = ?', key: al.id };
+  if (db.prepare('SELECT 1 FROM links WHERE token = ?').get(t)) return { name: null, album: false, from: 'link_assets x JOIN assets a ON a.id = x.asset_id WHERE x.token = ?', key: t };
+  res.status(404).json({ error: 'This link no longer works' });
+  return null;
 }
 function sharedAsset(req, res) {
-  const al = sharedAlbum(req, res);
-  if (!al) return null;
-  const a = db.prepare(`SELECT a.* FROM album_assets aa JOIN assets a ON a.id = aa.asset_id
-    WHERE aa.album_id = ? AND a.id = ? AND a.trashed_at IS NULL AND a.locked = 0`).get(al.id, Number(req.params.id));
+  const s = shared(req, res);
+  if (!s) return null;
+  const a = db.prepare(`SELECT a.* FROM ${s.from} AND a.id = ? AND ${VISIBLE}`).get(s.key, Number(req.params.id));
   if (!a) { res.status(404).end(); return null; }
   return a;
 }
 app.get('/s/:token', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'share.html')));
 app.get('/api/share/:token', (req, res) => {
-  const al = sharedAlbum(req, res);
-  if (!al) return;
-  const assets = db.prepare(`SELECT a.* FROM album_assets aa JOIN assets a ON a.id = aa.asset_id
-    WHERE aa.album_id = ? AND a.trashed_at IS NULL AND a.locked = 0 ORDER BY a.taken_at`).all(al.id);
-  res.json({ name: al.name, assets: assets.map(a => ({ id: a.id, type: a.type, takenAt: a.taken_at, width: a.width, height: a.height, name: a.original_name })) });
+  const s = shared(req, res);
+  if (!s) return;
+  const assets = db.prepare(`SELECT a.* FROM ${s.from} AND ${VISIBLE} ORDER BY a.taken_at`).all(s.key);
+  res.json({ name: s.name, album: s.album, assets: assets.map(a => ({ id: a.id, type: a.type, takenAt: a.taken_at, width: a.width, height: a.height, name: a.original_name })) });
 });
 for (const [kind, dir] of [['thumb', cfg.THUMB_DIR], ['preview', cfg.PREVIEW_DIR]]) {
   app.get(`/api/share/:token/${kind}/:id`, (req, res) => {
@@ -460,29 +493,6 @@ app.get('/api/share/:token/original/:id', (req, res) => {
 });
 
 // ---------- background jobs ----------
-// Files dropped into data/import are added to the library (handy for bulk-importing old photos).
-let importing = false;
-async function importFolder() {
-  if (importing) return;
-  importing = true;
-  try {
-    const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
-      const p = path.join(dir, e.name);
-      return e.isDirectory() ? walk(p) : [p];
-    });
-    for (const file of walk(cfg.IMPORT_DIR)) {
-      if (!media.isMedia(file)) continue;
-      // Skip files still being copied in.
-      if (Date.now() - fs.statSync(file).mtimeMs < 60e3 && Date.now() - fs.statSync(file).ctimeMs < 60e3) continue;
-      const tmp = path.join(cfg.UPLOAD_TMP, crypto.randomBytes(8).toString('hex'));
-      fs.copyFileSync(file, tmp);
-      try {
-        await media.ingest(tmp, { originalName: path.basename(file), lastModified: fs.statSync(file).mtimeMs });
-        fs.rmSync(file);
-      } catch (e) { console.warn(`import failed for ${file}: ${e.message}`); fs.rmSync(tmp, { force: true }); }
-    }
-  } finally { importing = false; }
-}
 // Make any thumbnails that are missing (e.g. after restoring a backup of library/).
 async function fillRenditions() {
   for (const a of db.prepare('SELECT * FROM assets').all()) {
@@ -504,10 +514,11 @@ function backupDb() {
   fs.readdirSync(dir).sort().slice(0, -7).forEach(f => fs.rmSync(path.join(dir, f), { force: true }));
 }
 
-setInterval(() => { emptyOldTrash(); importFolder(); backupDb(); }, 10 * 60e3);
+setInterval(() => { emptyOldTrash(); importer.scanFolder(); backupDb(); }, 10 * 60e3);
 backupDb();
 db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now());
 emptyOldTrash();
-importFolder().then(fillRenditions);
+importer.scanFolder();
+fillRenditions();
 
 app.listen(cfg.PORT, () => console.log(`PhotoVault on http://localhost:${cfg.PORT} (data in ${cfg.DATA_DIR})`));

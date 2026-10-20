@@ -60,6 +60,17 @@ db.exec(`
     PRIMARY KEY (album_id, asset_id)
   );
 
+  -- Share links for single photos/videos or a hand-picked set (albums keep their own share_token).
+  CREATE TABLE IF NOT EXISTS links (
+    token      TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS link_assets (
+    token    TEXT NOT NULL REFERENCES links(token) ON DELETE CASCADE,
+    asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+    PRIMARY KEY (token, asset_id)
+  );
+
   CREATE TABLE IF NOT EXISTS sessions (
     token      TEXT PRIMARY KEY,
     device     TEXT,

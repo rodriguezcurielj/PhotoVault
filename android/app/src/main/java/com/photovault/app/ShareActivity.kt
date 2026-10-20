@@ -20,7 +20,7 @@ class ShareActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Repo.prefs.token == null) {
-            Toast.makeText(this, "Open PhotoVault and sign in first", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Open Gallery and sign in first", Toast.LENGTH_LONG).show()
             finish(); return
         }
         val uris: List<Uri> = when (intent.action) {
@@ -44,7 +44,7 @@ class ShareActivity : ComponentActivity() {
                 }
             }
             BackupWorker.uploadShared(this@ShareActivity, copies)
-            Toast.makeText(this@ShareActivity, "Uploading ${copies.size} to PhotoVault", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@ShareActivity, "Uploading ${copies.size} to Gallery", Toast.LENGTH_SHORT).show()
             finish()
         }
     }

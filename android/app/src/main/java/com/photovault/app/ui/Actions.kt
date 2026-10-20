@@ -174,6 +174,37 @@ class Actions(private val activity: ComponentActivity) {
         "Saved $n to this phone"
     }
 
+    /** Makes a no-password link to just these items (uploading any that aren't backed up yet) and opens the share sheet with it. */
+    suspend fun shareLink(items: List<MediaItem>): String? {
+        val ids = ensureRemote(items)
+        if (ids.isEmpty()) return "Nothing to share"
+        val url = api.shareUrl(api.createLink(ids))
+        activity.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, url), "Share link"))
+        return null
+    }
+
+    /** Downloads the newest app from the server and opens Android's installer. */
+    suspend fun updateApp(): String? {
+        val pm = activity.packageManager
+        if (!pm.canRequestPackageInstalls()) {
+            activity.startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
+            return "Allow installing apps from Gallery, then tap Update again"
+        }
+        val f = withContext(Dispatchers.IO) {
+            val dir = File(activity.cacheDir, "update").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
+            File(dir, "Gallery.apk").also { f ->
+                api.client.newCall(Request.Builder().url(api.apkUrl()).build()).execute().use { res ->
+                    if (!res.isSuccessful) error("Couldn't download the update (${res.code})")
+                    f.outputStream().use { res.body!!.byteStream().copyTo(it) }
+                }
+            }
+        }
+        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.files", f)
+        activity.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+        return null
+    }
+
     /** Opens the Android share sheet. Server-only items are downloaded first. */
     suspend fun share(items: List<MediaItem>) {
         val uris = withContext(Dispatchers.IO) {

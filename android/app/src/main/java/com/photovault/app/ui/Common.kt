@@ -33,7 +33,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Circle
@@ -226,8 +227,11 @@ fun Tile(item: MediaItem, selected: Boolean, selecting: Boolean, fit: Boolean = 
         if (item.isVideo) Text(fmtDuration(item.durationMs), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, style = shadow,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 5.dp, bottom = 3.dp))
         if (item.favorite) Icon(Icons.Filled.Favorite, null, tint = Color.White, modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).size(13.dp))
-        if (item.cloudOnly && !selecting) Icon(Icons.Filled.CloudQueue, null, tint = Color.White.copy(alpha = 0.85f),
-            modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(13.dp))
+        if (!selecting) Box(Modifier.align(Alignment.TopEnd).padding(4.dp).size(18.dp).background(Color.Black.copy(alpha = 0.35f), CircleShape),
+            contentAlignment = Alignment.Center) {
+            if (item.remote != null) Icon(Icons.Filled.CloudDone, "Uploaded", tint = Color.White, modifier = Modifier.size(12.dp))
+            else Icon(Icons.Filled.CloudOff, "Not uploaded", tint = Color(0xFFFF9F0A), modifier = Modifier.size(12.dp))
+        }
         if (selected) Box(Modifier.align(Alignment.BottomEnd).padding(5.dp).size(22.dp).background(Color.White, CircleShape).padding(1.5.dp)
             .background(Ios.blue, CircleShape), contentAlignment = Alignment.Center) {
             Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))

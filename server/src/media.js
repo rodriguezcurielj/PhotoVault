@@ -118,7 +118,7 @@ function libraryPath(takenAt, originalName) {
 
 /**
  * Adds a file to the library (moving it). Returns { asset, duplicate }.
- * opts: { originalName, lastModified, deviceId, deviceAsset, editedFrom, checksum }
+ * opts: { originalName, lastModified, deviceId, deviceAsset, editedFrom, checksum, lat, lon }
  */
 async function ingest(tmpFile, opts) {
   const checksum = await sha1File(tmpFile);
@@ -139,6 +139,8 @@ async function ingest(tmpFile, opts) {
   // Edited copies made in the browser/app lose EXIF; keep the original's location and camera.
   const source = opts.editedFrom && db.prepare('SELECT * FROM assets WHERE id = ?').get(opts.editedFrom);
   if (source && meta.lat == null) Object.assign(meta, { lat: source.lat, lon: source.lon, make: meta.make || source.make, model: meta.model || source.model });
+  // Location from elsewhere (e.g. a Google Takeout sidecar) when the file has none.
+  if (meta.lat == null && opts.lat != null && opts.lon != null && (opts.lat || opts.lon)) Object.assign(meta, { lat: opts.lat, lon: opts.lon });
   const hint = Number(opts.lastModified) > 315532800000 ? Number(opts.lastModified) : null; // ignore bogus dates before 1980
   const takenAt = meta.taken_at || hint || Date.now();
   const place = geo.lookup(meta.lat, meta.lon) || {};

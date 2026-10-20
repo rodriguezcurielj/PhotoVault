@@ -60,7 +60,7 @@ function showAuth(needsSetup) {
   setupMode = needsSetup;
   $('app').classList.add('hidden');
   $('auth').classList.remove('hidden');
-  $('authMsg').textContent = needsSetup ? 'Pick a username and password for PhotoVault.' : 'Sign in to your photos.';
+  $('authMsg').textContent = needsSetup ? 'Pick a username and password for Gallery.' : 'Sign in to your photos.';
   $('authBtn').textContent = needsSetup ? 'Create login' : 'Log in';
   $('user').focus();
 }
@@ -121,7 +121,7 @@ function route() {
     videos: () => viewSimple('Videos', 'videos', 'Videos you upload show up here.'),
     archive: () => viewSimple('Archive', 'archive', 'Archived photos are hidden from Photos but stay in albums and search.'),
     trash: viewTrash, albums: viewAlbums, album: () => viewAlbum(Number(arg)), explore: viewExplore,
-    search: () => viewSearch(arg), place: () => viewSearch(arg, true), map: viewMap, locked: viewLocked,
+    search: () => viewSearch(arg), place: () => viewSearch(arg, true), map: viewMap, locked: viewLocked, links: viewLinks, import: viewImport,
   }[view] || viewPhotos)();
 }
 document.querySelectorAll('#nav a[data-view]').forEach(a => (a.onclick = () => go(a.dataset.view)));
@@ -264,6 +264,7 @@ function syncSelection() {
   btn(allFav ? '♥ Unfavorite' : '♡ Favorite', () => bulk(allFav ? 'unfavorite' : 'favorite', ids));
   btn('＋ Add to album', () => pickAlbum(ids));
   btn('⤓ Download', () => download(ids));
+  btn('🔗 Get link', () => makeLink(ids));
   if (v === 'album') btn('Remove from album', async () => { await api(`/api/albums/${state.albumId}/remove`, { method: 'POST', body: { ids } }); route(); });
   btn(v === 'archive' ? 'Unarchive' : 'Archive', () => bulk(v === 'archive' ? 'unarchive' : 'archive', ids));
   btn('🔒 Lock', () => withUnlock(() => bulk('lock', ids)));
@@ -360,7 +361,7 @@ async function viewPhotos() {
   const mem = h('div', { class: 'memories' });
   c.append(mem);
   const list = all().filter(viewFilters.photos);
-  renderGrid(c, list, { empty: h('div', { class: 'empty' }, h('strong', {}, 'Your library is empty'), 'Click Upload, drag photos here, or turn on backup in the PhotoVault Android app.') });
+  renderGrid(c, list, { empty: h('div', { class: 'empty' }, h('strong', {}, 'Your library is empty'), 'Click Upload, drag photos here, or turn on backup in the Gallery Android app.') });
   try {
     const groups = await api('/api/memories');
     if (state.view !== 'photos') return;
@@ -395,7 +396,8 @@ async function viewAlbums() {
   const cards = h('div', { class: 'cards' });
   cards.append(
     card('♥', 'Favorites', all().filter(viewFilters.favorites).length + ' items', () => go('favorites'), all().find(viewFilters.favorites)),
-    card('▶', 'Videos', all().filter(viewFilters.videos).length + ' items', () => go('videos'), all().find(viewFilters.videos)));
+    card('▶', 'Videos', all().filter(viewFilters.videos).length + ' items', () => go('videos'), all().find(viewFilters.videos)),
+    card('🔗', 'Shared links', 'Photos & videos you shared', () => go('links')));
   for (const al of albums) cards.append(card('❐', al.name, `${al.count} items${al.shareToken ? ' · shared' : ''}`, () => go('album/' + al.id), al.cover && { id: al.cover }));
   c.append(cards);
 }
@@ -437,6 +439,89 @@ function shareAlbum(al) {
         h('button', { onclick: () => { closeModal(); route(); } }, 'Done')));
   };
   render(al.shareToken);
+}
+// A no-password link to just these photos/videos (one item opens straight into it).
+async function makeLink(ids) {
+  const { token: t } = await api('/api/links', { method: 'POST', body: { ids } });
+  const url = `${SERVER || location.origin}/s/${t}`;
+  const what = ids.length === 1 ? (state.assets.get(ids[0])?.type === 'video' ? 'this video' : 'this photo') : `these ${ids.length} items`;
+  modal(h('h3', {}, 'Link created'),
+    h('div', { class: 'muted' }, `Anyone with this link can view and download ${what} — nothing else, and no password. Turn it off any time under Albums → Shared links.`),
+    h('input', { type: 'text', value: url, readonly: true, onclick: e => e.target.select() }),
+    h('div', { class: 'actions' },
+      h('button', { onclick: closeModal }, 'Done'),
+      h('button', { class: 'primary', onclick: () => { navigator.clipboard?.writeText(url); toast('Link copied'); } }, 'Copy link')));
+}
+// ---------------------------------------------------------------- import from Google Photos / Amazon Photos
+function viewImport() {
+  const c = $('content');
+  const step = (...t) => h('li', {}, ...t);
+  const link = (href, text) => h('a', { href, target: '_blank', rel: 'noopener' }, text);
+  const file = h('input', { type: 'file', accept: '.zip,application/zip', multiple: true, style: 'display:none' });
+  const progress = h('div', { class: 'muted' });
+  file.onchange = async () => {
+    for (const f of [...file.files]) {
+      await new Promise(done => {
+        const fd = new FormData();
+        fd.append('file', f);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', SERVER + '/api/import/zip');
+        if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+        xhr.upload.onprogress = e => { progress.textContent = `Uploading ${f.name}: ${Math.round(e.loaded / e.total * 100)}%`; };
+        xhr.onload = xhr.onerror = () => { progress.textContent = xhr.status === 200 ? `${f.name} uploaded` : `${f.name} failed: ${xhr.responseText || 'network error'}`; done(); };
+        xhr.send(fd);
+      });
+    }
+    file.value = '';
+    poll();
+  };
+  const st = h('div', { class: 'importstatus' });
+  async function poll() {
+    if (state.view !== 'import') return;
+    const s = await api('/api/import/status').catch(() => null);
+    if (!s) return;
+    st.textContent = s.running ? `Importing ${s.file}: ${s.done} of ${s.total || '…'} — ${s.added} new, ${s.duplicates} already here${s.failed ? `, ${s.failed} failed` : ''}`
+      : s.finishedAt ? `Last import finished ${new Date(s.finishedAt).toLocaleString()}: ${s.added} new, ${s.duplicates} already here${s.failed ? `, ${s.failed} failed` : ''}.` : '';
+    if (s.running) setTimeout(poll, 3000); else if (s.added) sync();
+  }
+  c.append(h('div', { class: 'toolbar' }, h('h2', {}, 'Import')),
+    h('div', { class: 'importpage' },
+      h('section', {}, h('h3', {}, 'Google Photos'),
+        h('ol', {},
+          step('Open ', link('https://takeout.google.com/', 'Google Takeout'), ', click “Deselect all”, then tick only ', h('b', {}, 'Google Photos'), '.'),
+          step('Next step → File type ', h('b', {}, '.zip'), ', size ', h('b', {}, '50 GB'), ' → Create export. Google emails you when it’s ready (hours to a day).'),
+          step('Download the zip file(s) and upload them below.')),
+        h('div', { class: 'muted' }, 'Dates and locations from Google’s .json files are kept. Photos you already have are skipped.')),
+      h('section', {}, h('h3', {}, 'Amazon Photos'),
+        h('ol', {},
+          step('Open ', link('https://www.amazon.com/photos/all', 'Amazon Photos'), ' on a computer and select photos (click the first, Shift-click the last to select many).'),
+          step('Click ⋯ → ', h('b', {}, 'Download'), '. Amazon gives you a .zip.'),
+          step('Upload the zip below. For a whole library, the Amazon Photos desktop app can download everything into a folder you then zip.'))),
+      h('section', {}, h('h3', {}, 'From your phone'),
+        h('div', {}, 'In the Google Photos or Amazon Photos app, select photos → Share → ', h('b', {}, 'Upload to Gallery'), '.')),
+      h('section', {},
+        h('button', { class: 'primary', onclick: () => file.click() }, '⇪ Upload .zip files'), file, progress, st,
+        h('div', { class: 'muted' }, 'Very big exports upload faster by copying the zips into D:\\PhotoVault\\data\\import on the server PC; they’re picked up within 10 minutes.'))));
+  poll();
+}
+
+async function viewLinks() {
+  const c = $('content');
+  c.append(h('div', { class: 'toolbar' }, h('button', { class: 'icon', onclick: () => go('albums') }, '←'), h('h2', {}, 'Shared links')),
+    h('div', { class: 'muted', style: 'margin:0 4px 12px' }, 'Links to single photos, videos or selections. Album links are turned off from the album.'));
+  const links = await api('/api/links');
+  if (!links.length) { c.append(h('div', { class: 'empty' }, h('strong', {}, 'No links yet'), 'Open a photo or select some and choose “Get link”.')); return; }
+  const list = h('div', { class: 'links' });
+  for (const l of links) {
+    const url = `${SERVER || location.origin}/s/${l.token}`;
+    list.append(h('div', { class: 'linkrow' },
+      l.cover ? h('img', { src: src(`/api/assets/${l.cover}/thumb`), loading: 'lazy' }) : h('div', { class: 'ph' }),
+      h('div', { class: 'grow' }, h('div', {}, `${l.count} item${l.count === 1 ? '' : 's'}`), h('div', { class: 'muted' }, new Date(l.createdAt).toLocaleDateString())),
+      h('button', { onclick: () => { navigator.clipboard?.writeText(url); toast('Link copied'); } }, 'Copy'),
+      h('button', { onclick: () => window.open(url, '_blank') }, 'Open'),
+      h('button', { class: 'danger', onclick: () => confirmDo('Turn off this link?', 'People who have it won’t be able to open it anymore. The photos stay in your library.', 'Turn off', async () => { await api('/api/links/' + l.token, { method: 'DELETE' }); route(); }) }, 'Turn off')));
+  }
+  c.append(list);
 }
 function addToAlbumFromLibrary(id) {
   toast('Select photos, then press “Add here”', 4000);
@@ -764,6 +849,7 @@ $('vMore').onclick = () => {
   menu($('vMore'), [
     ['Add to album', () => pickAlbum([a.id])],
     state.view === 'album' && ['Use as album cover', async () => { await api('/api/albums/' + state.albumId, { method: 'PATCH', body: { cover: a.id } }); toast('Cover updated'); }],
+    ['Get link', () => makeLink([a.id])],
     navigator.share && ['Share…', () => shareFile(a)],
     a.type === 'image' && ['Open full resolution', () => window.open(original(a), '_blank')],
     ['Edit date & time', () => adjustDate([a.id])],

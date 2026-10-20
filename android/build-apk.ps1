@@ -23,4 +23,11 @@ try {
 $apk = Join-Path $here 'app\build\outputs\apk\release\app-release.apk'
 $out = Join-Path (Split-Path -Parent $here) 'PhotoVault.apk'
 Copy-Item $apk $out -Force
+# The server hands this APK to the app's "Update app" button, with its version number next to it.
+$public = Join-Path (Split-Path -Parent $here) 'server\public'
+Copy-Item $apk (Join-Path $public 'PhotoVault.apk') -Force
+$gradle = Get-Content "$here\app\build.gradle" -Raw
+$code = [int]([regex]::Match($gradle, 'versionCode (\d+)').Groups[1].Value)
+$name = [regex]::Match($gradle, "versionName '([^']+)'").Groups[1].Value
+@{ versionCode = $code; versionName = $name } | ConvertTo-Json -Compress | Set-Content -Encoding ascii (Join-Path $public 'app-version.json')
 Write-Host "Saved $out ($([math]::Round((Get-Item $out).Length / 1MB, 1)) MB)."

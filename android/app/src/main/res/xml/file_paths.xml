@@ -1,3 +1,4 @@
 <paths>
     <cache-path name="shared" path="shared/" />
+    <cache-path name="update" path="update/" />
 </paths>

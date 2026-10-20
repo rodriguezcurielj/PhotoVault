@@ -164,7 +164,7 @@ fun LibraryTab() {
     Box(Modifier.fillMaxSize()) {
         when (mode) {
             2 -> MediaGrid(items, selection, onOpen = { list, i -> app.push(Screen.Viewer(list, i)) }, state = state,
-                empty = { EmptyState("No Photos or Videos", "Photos on this phone and on your PhotoVault server show up here.") })
+                empty = { EmptyState("No Photos or Videos", "Photos on this phone and on your Gallery server show up here.") })
             1 -> MonthCards(items) { firstOfMonth -> mode = 2; scope.launch { state.scrollToItem(display.indexOf(firstOfMonth).coerceAtLeast(0)) } }
             else -> YearCards(items) { firstOfYear -> mode = 1; scope.launch { state.scrollToItem(display.indexOf(firstOfYear).coerceAtLeast(0)) } }
         }
@@ -351,6 +351,7 @@ fun SelectionBottomBar(selection: Selection, items: List<MediaItem>, modifier: M
                 IconButton(enabled = n > 0, onClick = { menu = true }) { Icon(Icons.Filled.MoreHoriz, "More", tint = if (n > 0) Ios.blue else Ios.gray) }
                 DropdownMenu(menu, { menu = false }) {
                     DropdownMenuItem({ Text("Add to Album") }, { menu = false; albumPicker = true })
+                    DropdownMenuItem({ Text("Get Link") }, { menu = false; app.run { app.actions.shareLink(chosen).also { selection.clear() } } })
                     DropdownMenuItem({ Text(if (allFav) "Unfavorite" else "Favorite") }, { menu = false; app.run { app.actions.favorite(chosen, !allFav).also { selection.clear() } } })
                     if (chosen.any { it.local != null && it.remote == null })
                         DropdownMenuItem({ Text("Back Up Now") }, { menu = false; app.run { app.actions.ensureRemote(chosen); selection.clear(); "Backed up" } })
@@ -372,9 +373,9 @@ fun SelectionBottomBar(selection: Selection, items: List<MediaItem>, modifier: M
         albumPicker = false
         app.run { app.actions.addToAlbum(chosen, id, name).also { selection.clear() } }
     }
-    if (confirmDelete) ConfirmDialog("Delete $n Item${if (n > 1) "s" else ""}?", "They'll be removed from this phone and your PhotoVault server, and kept in Recently Deleted for 30 days.", "Delete",
+    if (confirmDelete) ConfirmDialog("Delete $n Item${if (n > 1) "s" else ""}?", "They'll be removed from this phone and your Gallery server, and kept in Recently Deleted for 30 days.", "Delete",
         { confirmDelete = false }) { app.run { app.actions.trash(chosen).also { selection.clear() } } }
-    if (lockPrompt) TextPrompt("Enter your PhotoVault password", password = true, confirm = "Hide", onDismiss = { lockPrompt = false }) { pw ->
+    if (lockPrompt) TextPrompt("Enter your Gallery password", password = true, confirm = "Hide", onDismiss = { lockPrompt = false }) { pw ->
         lockPrompt = false
         app.run { app.actions.lock(chosen, pw).also { selection.clear() } }
     }

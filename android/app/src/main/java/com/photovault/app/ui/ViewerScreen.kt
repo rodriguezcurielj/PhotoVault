@@ -179,6 +179,7 @@ fun ViewerScreen(s: Screen.Viewer) {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreHoriz, "More", tint = Ios.blue) }
                         DropdownMenu(menu, { menu = false }) {
                             DropdownMenuItem({ Text("Add to Album") }, { menu = false; albumPicker = true })
+                            if (!locked) DropdownMenuItem({ Text("Get Link") }, { menu = false; app.run { app.actions.shareLink(listOf(current)) } })
                             if (s.albumId != null && current.remote != null) DropdownMenuItem({ Text("Make Key Photo") }, { menu = false; app.run { Repo.api.setAlbumCover(s.albumId, current.remote.id); Repo.refreshExtras(); "Key photo updated" } })
                             if (current.local != null && current.remote == null) DropdownMenuItem({ Text("Back Up Now") }, { menu = false; app.run { app.actions.ensureRemote(listOf(current)); "Backed up" } })
                             if (current.cloudOnly) DropdownMenuItem({ Text("Save to This Phone") }, { menu = false; app.run { app.actions.saveToDevice(listOf(current)) } })
@@ -228,13 +229,13 @@ fun ViewerScreen(s: Screen.Viewer) {
     if (confirmDelete) {
         if (inTrash) ConfirmDialog("Delete Forever?", "This can't be undone.", "Delete", { confirmDelete = false }) {
             app.run { app.actions.deleteForever(listOf(current)).also { removed = removed + current.key } }
-        } else ConfirmDialog("Delete Photo?", "It will be removed from this phone and your PhotoVault server, and kept in Recently Deleted for 30 days.", "Delete", { confirmDelete = false }) {
+        } else ConfirmDialog("Delete Photo?", "It will be removed from this phone and your Gallery server, and kept in Recently Deleted for 30 days.", "Delete", { confirmDelete = false }) {
             app.run { app.actions.trash(listOf(current)).also { if (!it.startsWith("Cancel")) removed = removed + current.key } }
         }
     }
     if (albumPicker) AlbumPicker({ albumPicker = false }) { id, name -> albumPicker = false; app.run { app.actions.addToAlbum(listOf(current), id, name) } }
     if (datePrompt) DateTimePrompt(current.date, { datePrompt = false }) { t -> datePrompt = false; app.run { app.actions.setDate(listOf(current), t) } }
-    if (lockPrompt) TextPrompt("Enter your PhotoVault password", password = true, confirm = "Move", onDismiss = { lockPrompt = false }) { pw ->
+    if (lockPrompt) TextPrompt("Enter your Gallery password", password = true, confirm = "Move", onDismiss = { lockPrompt = false }) { pw ->
         lockPrompt = false
         app.run { app.actions.lock(listOf(current), pw).also { removed = removed + current.key } }
     }
@@ -374,7 +375,7 @@ fun InfoSheet(item: MediaItem) {
         if (camera != null) InfoRow(Icons.Filled.CameraAlt, camera, exif?.third)
         if (latLon != null) InfoRow(Icons.Filled.LocationOn, place ?: "Location", "%.5f, %.5f".format(latLon.first, latLon.second))
         InfoRow(if (item.cloudOnly) Icons.Filled.Cloud else Icons.Filled.PhoneAndroid,
-            when { item.backedUp -> "On this phone · Backed up"; item.cloudOnly -> "Only on PhotoVault"; else -> "On this phone · Not backed up yet" },
+            when { item.backedUp -> "On this phone · Backed up"; item.cloudOnly -> "Only on the server"; else -> "On this phone · Not backed up yet" },
             item.local?.let { "${it.relativePath}${it.name}" })
     }
 }

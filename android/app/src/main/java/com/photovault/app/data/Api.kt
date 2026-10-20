@@ -46,6 +46,7 @@ class Api(private val prefs: Prefs) {
     /** For players that can't send headers. */
     fun originalUrlWithToken(id: Long) = url("/api/assets/$id/original?token=${prefs.token}")
     fun shareUrl(token: String) = url("/s/$token")
+    fun apkUrl() = url("/PhotoVault.apk")
 
     private suspend fun call(method: String, path: String, body: Any? = null, headers: Map<String, String> = emptyMap()): String =
         withContext(Dispatchers.IO) {
@@ -169,6 +170,11 @@ class Api(private val prefs: Prefs) {
         val o = JSONObject(call("POST", "/api/albums/$id/share", JSONObject().put("enabled", enabled)))
         return if (o.isNull("shareToken")) null else o.getString("shareToken")
     }
+
+    /** A no-password link to just these photos/videos. */
+    suspend fun createLink(ids: List<Long>): String = JSONObject(call("POST", "/api/links", JSONObject().put("ids", JSONArray(ids)))).getString("token")
+    /** versionCode of the APK the server has, or null if it doesn't say. */
+    suspend fun serverAppVersion(): Int? = runCatching { JSONObject(call("GET", "/app-version.json")).getInt("versionCode") }.getOrNull()
 
     suspend fun memories(): List<Memory> {
         val a = JSONArray(call("GET", "/api/memories"))

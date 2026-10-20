@@ -458,7 +458,7 @@ fun LockedScreen() {
             Text("Hidden photos don't appear in your Library, albums, search or the map, and are removed from this phone.", textAlign = TextAlign.Center,
                 color = Ios.gray, modifier = Modifier.padding(vertical = 12.dp))
         }
-        if (password == null) TextPrompt("Enter your PhotoVault password", password = true, confirm = "View", onDismiss = { app.pop() }) { password = it }
+        if (password == null) TextPrompt("Enter your Gallery password", password = true, confirm = "View", onDismiss = { app.pop() }) { password = it }
         return
     }
     PhotoPage("Hidden", null, list, "locked",
@@ -510,7 +510,7 @@ fun FreeUpScreen() {
         Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Filled.CleaningServices, null, modifier = Modifier.size(56.dp), tint = Ios.blue)
             Text(if (backed.isEmpty()) "Nothing to Free Up Yet" else fmtBytes(bytes), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 16.dp))
-            Text("${backed.size} photos and videos on this phone are safely backed up to PhotoVault. Removing them from the phone keeps them in PhotoVault, where you can still see them here.",
+            Text("${backed.size} photos and videos on this phone are safely backed up to Gallery. Removing them from the phone keeps them in Gallery, where you can still see them here.",
                 textAlign = TextAlign.Center, color = Ios.gray, modifier = Modifier.padding(vertical = 16.dp))
             Button(enabled = backed.isNotEmpty(), onClick = { app.run { app.actions.freeUpSpace(backed) } }) { Text("Free Up ${fmtBytes(bytes)}") }
         }
@@ -557,7 +557,7 @@ fun MapScreen() {
     }
 }
 
-/** OpenStreetMap tiles served (and cached) by your PhotoVault server, rounded photo pins with a count badge. */
+/** OpenStreetMap tiles served (and cached) by your Gallery server, rounded photo pins with a count badge. */
 private fun mapHtml(data: String, dark: Boolean) = """
 <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">

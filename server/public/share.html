@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Shared album</title>
+<title>Gallery</title>
 <style>
   :root { --bg: #f7f7f5; --text: #1b1c1e; --muted: #6b6d72; --tile: #e9e9e6; }
   @media (prefers-color-scheme: dark) { :root { --bg: #111214; --text: #ecedef; --muted: #9a9ca3; --tile: #25262a; } }
@@ -24,12 +24,14 @@
   #lb .bar a, #lb .bar button { color: #fff; background: rgba(255,255,255,.12); border: 0; border-radius: 999px; padding: 8px 14px; font: inherit; text-decoration: none; cursor: pointer; }
   #lb .stage { flex: 1; display: grid; place-items: center; min-height: 0; }
   #lb img, #lb video { max-width: 100%; max-height: calc(100vh - 70px); }
+  #lb.single #prev, #lb.single #next, #lb.single #close { display: none; }
+  #lb .name { color: #fff; margin-right: auto; align-self: center; padding-left: 6px; opacity: .8; font-size: 14px; }
 </style>
 </head>
 <body>
-<header><h1 id="title">Shared album</h1><span class="muted" id="count"></span></header>
+<header><h1 id="title">Gallery</h1><span class="muted" id="count"></span></header>
 <main id="grid"></main>
-<div id="lb"><div class="bar"><button id="prev">‹</button><button id="next">›</button><a id="dl" download>Download</a><button id="close">✕</button></div><div class="stage" id="stage"></div></div>
+<div id="lb"><div class="bar"><span class="name" id="lbName"></span><button id="prev">‹</button><button id="next">›</button><a id="dl" download>Download</a><button id="close">✕</button></div><div class="stage" id="stage"></div></div>
 <script>
 const token = location.pathname.split('/').pop();
 const base = `/api/share/${encodeURIComponent(token)}`;
@@ -37,9 +39,14 @@ let items = [], cur = 0;
 const $ = id => document.getElementById(id);
 fetch(base).then(r => r.ok ? r.json() : Promise.reject()).then(d => {
   items = d.assets;
-  document.title = d.name;
-  $('title').textContent = d.name;
-  $('count').textContent = `${items.length} items`;
+  const vids = items.filter(a => a.type === 'video').length;
+  const name = d.name || (items.length === 1 ? (vids ? 'Shared video' : 'Shared photo') : `${items.length} shared ${vids === items.length ? 'videos' : vids ? 'items' : 'photos'}`);
+  document.title = name;
+  $('title').textContent = name;
+  $('count').textContent = d.album ? `${items.length} items` : '';
+  if (!items.length) { $('title').textContent = 'This link no longer works'; return; }
+  // A link to one photo or video shows just that, full screen.
+  if (items.length === 1) { $('lb').classList.add('single'); $('lbName').textContent = name; open(0); return; }
   items.forEach((a, i) => {
     const t = document.createElement('div');
     t.className = 't';
@@ -68,7 +75,7 @@ $('prev').onclick = () => open(cur - 1);
 $('next').onclick = () => open(cur + 1);
 addEventListener('keydown', e => {
   if (!$('lb').classList.contains('on')) return;
-  if (e.key === 'Escape') $('close').click();
+  if (e.key === 'Escape' && !$('lb').classList.contains('single')) $('close').click();
   if (e.key === 'ArrowLeft') open(cur - 1);
   if (e.key === 'ArrowRight') open(cur + 1);
 });

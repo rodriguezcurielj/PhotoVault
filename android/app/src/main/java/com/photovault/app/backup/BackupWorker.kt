@@ -114,7 +114,7 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
                 .onFailure { if (it is java.io.IOException && it !is com.photovault.app.data.ApiException) return Result.retry() }
         }
         Repo.syncRemote()
-        notifyDone("Uploaded $ok of ${uris.size} to PhotoVault")
+        notifyDone("Uploaded $ok of ${uris.size} to Gallery")
         return Result.success()
     }
 
@@ -128,7 +128,7 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         val n = NotificationCompat.Builder(applicationContext, channel())
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle("Backing up ${done + 1} of $total")
-            .setContentText(name ?: "PhotoVault")
+            .setContentText(name ?: "Gallery")
             .setProgress(total, done, false)
             .setOngoing(true)
             .setSilent(true)

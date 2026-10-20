@@ -1,4 +1,4 @@
 <resources>
-    <string name="app_name">PhotoVault</string>
-    <string name="share_label">Upload to PhotoVault</string>
+    <string name="app_name">Gallery</string>
+    <string name="share_label">Upload to Gallery</string>
 </resources>

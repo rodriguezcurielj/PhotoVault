@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#111214">
-<title>PhotoVault</title>
+<title>Gallery</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css">
@@ -14,7 +14,7 @@
 
 <section id="auth" class="hidden">
   <form id="authForm">
-    <div class="logo">PhotoVault</div>
+    <div class="logo">Gallery</div>
     <p id="authMsg">Sign in to your photos.</p>
     <input id="user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Username" required>
     <input id="pw" type="password" autocomplete="current-password" placeholder="Password" required>
@@ -25,13 +25,14 @@
 
 <div id="app" class="hidden">
   <aside id="nav">
-    <div class="logo">PhotoVault</div>
+    <div class="logo">Gallery</div>
     <a data-view="photos" class="active"><span class="i">▦</span>Photos</a>
     <a data-view="explore"><span class="i">⌕</span>Explore</a>
     <a data-view="albums"><span class="i">❐</span>Albums</a>
     <a data-view="favorites"><span class="i">♥</span>Favorites</a>
     <a data-view="videos"><span class="i">▶</span>Videos</a>
     <a data-view="map"><span class="i">⌖</span>Map</a>
+    <a data-view="import"><span class="i">⇪</span>Import</a>
     <hr>
     <a data-view="archive"><span class="i">⬓</span>Archive</a>
     <a data-view="locked"><span class="i">🔒</span>Locked folder</a>

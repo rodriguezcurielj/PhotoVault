@@ -60,7 +60,7 @@ fun LoginScreen() {
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(28.dp),
         verticalArrangement = Arrangement.Center) {
         Spacer(Modifier.height(60.dp))
-        Text("PhotoVault", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+        Text("Gallery", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         Text("Your photos, on your own server.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp, bottom = 32.dp))
         OutlinedTextField(server, { server = it }, label = { Text("Server address") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
@@ -146,30 +146,41 @@ fun SettingsScreen() {
             SettingRow("Free up space", "Remove phone copies that are already backed up") { app.push(Screen.FreeUp) }
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
-            SectionTitle("Make PhotoVault your gallery")
+            SectionTitle("Make Gallery your default gallery")
             Text("Android has no single “default gallery” switch. Do these once:", modifier = Modifier.padding(horizontal = 16.dp),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             SettingRow("1. Stop Google Photos opening pictures", "Opens Google Photos' app info → “Open by default” → turn off “Open supported links”, and “Clear defaults”") {
                 runCatching { ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:com.google.android.apps.photos"))) }
                     .onFailure { app.toast("Google Photos isn't installed, nothing to change") }
             }
-            SettingRow("2. Open a photo from Files or the camera", "Pick PhotoVault and tap “Always”. From then on photos open here.") {
+            SettingRow("2. Open a photo from Files or the camera", "Pick Gallery and tap “Always”. From then on photos open here.") {
                 // Show the chooser with a real photo so the user can pick "Always".
                 val sample = all.firstOrNull { it.local != null && !it.isVideo }?.local
                 if (sample != null) ctx.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(sample.uri, sample.mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
             }
-            SettingRow("3. Allow media management", "Lets PhotoVault delete, trash and favourite without asking every time") {
+            SettingRow("3. Allow media management", "Lets Gallery delete, trash and favourite without asking every time") {
                 if (Build.VERSION.SDK_INT >= 31) ctx.startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA, Uri.parse("package:${ctx.packageName}")))
             }
             if (Build.VERSION.SDK_INT >= 31) Text(if (MediaStore.canManageMedia(ctx)) "Media management: allowed" else "Media management: not allowed yet",
                 modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
+            SectionTitle("App")
+            var serverVersion by remember { mutableStateOf<Int?>(null) }
+            LaunchedEffect(Unit) { serverVersion = Repo.api.serverAppVersion() }
+            val newer = serverVersion != null && serverVersion!! > BuildConfig.VERSION_CODE
+            SettingRow(if (newer) "Update app — new version available" else "Update app",
+                if (newer) "Tap to download and install the newest Gallery from your server"
+                else "Downloads the app from your server and reinstalls it (you're on ${BuildConfig.VERSION_NAME})") {
+                app.run { app.actions.updateApp() }
+            }
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
             SectionTitle("Account")
             SettingRow("Server", p.server) {}
             SettingRow("Change password", null) { changePw = true }
             SettingRow("Sign out", "Photos on this phone stay put") { confirmLogout = true }
-            Text("PhotoVault ${BuildConfig.VERSION_NAME}", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Gallery ${BuildConfig.VERSION_NAME}", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
     if (changePw) TextPrompt("Current password", password = true, confirm = "Next", onDismiss = { changePw = false }) { cur -> changePw = false; newPw = cur }
