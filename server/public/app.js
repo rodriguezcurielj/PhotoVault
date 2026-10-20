@@ -1051,3 +1051,22 @@ async function start() {
 // Pick up photos uploaded from the phone while the page is open.
 setInterval(async () => { if (appVisible() && !document.hidden && V.i < 0 && !state.sel.size) { const n = state.assets.size; await sync().catch(() => {}); if (state.assets.size !== n && ['photos', 'videos', 'favorites'].includes(state.view)) route(); } }, 30000);
 api('/api/status').then(s => (s.authed ? start() : showAuth(!s.setup))).catch(() => showAuth(false));
+
+// ---------------------------------------------------------------- install as an app (Windows etc.)
+let installPrompt = null;
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; });
+const standalone = matchMedia('(display-mode: standalone)').matches;
+if (standalone) $('getAppBtn').remove();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+$('getAppBtn') && ($('getAppBtn').onclick = () => {
+  const edge = /Edg\//.test(navigator.userAgent);
+  modal(h('h3', {}, 'Get the Gallery app'),
+    h('div', {}, h('b', {}, 'Windows / Mac / Chromebook'), h('div', { class: 'muted' },
+      installPrompt ? 'Installs Gallery as an app with its own window, Start menu and taskbar icon.'
+        : `In ${edge ? 'Edge' : 'Chrome or Edge'}, click the install icon at the right end of the address bar (or ⋯ → ${edge ? 'Apps → Install Gallery' : 'Cast, save and share → Install page as app'}).`)),
+    h('div', {}, h('b', {}, 'Android'), h('div', { class: 'muted' }, 'Download the APK on your phone and open it. After that, use Settings → Update app inside the app.')),
+    h('div', { class: 'actions' },
+      h('button', { onclick: closeModal }, 'Close'),
+      h('a', { class: 'btn', href: (SERVER || '.') + '/PhotoVault.apk', download: 'Gallery.apk' }, 'Android APK'),
+      installPrompt ? h('button', { class: 'primary', onclick: async () => { closeModal(); installPrompt.prompt(); const r = await installPrompt.userChoice; if (r.outcome === 'accepted') { installPrompt = null; $('getAppBtn')?.remove(); } } }, 'Install on this computer') : null));
+});
