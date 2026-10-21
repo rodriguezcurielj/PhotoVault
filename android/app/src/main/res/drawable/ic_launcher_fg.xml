@@ -1,8 +1,13 @@
+<!-- Gallery logo: a photo with mountains and a sun over a tilted purple photo (drawn on a 680 grid, scaled into the 72dp visible area). -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-    <path android:fillColor="#FF6B9BF2" android:pathData="M54,54 L54,30 A12,12 0 0,1 66,42 L66,54 Z" />
-    <path android:fillColor="#FFF2B84B" android:pathData="M54,54 L78,54 A12,12 0 0,1 66,66 L54,66 Z" />
-    <path android:fillColor="#FF5CC98A" android:pathData="M54,54 L54,78 A12,12 0 0,1 42,66 L42,54 Z" />
-    <path android:fillColor="#FFF06A6A" android:pathData="M54,54 L30,54 A12,12 0 0,1 42,42 L54,42 Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M54,50a4,4 0 1,1 0,8a4,4 0 1,1 0,-8z" />
+    <group android:translateX="18" android:translateY="18" android:scaleX="0.10588" android:scaleY="0.10588">
+        <group android:rotation="12" android:pivotX="357" android:pivotY="295">
+            <path android:fillColor="#FF8B83FF" android:pathData="M256,142 H462 A58,58 0 0 1 520,200 V395 A58,58 0 0 1 462,453 H256 A58,58 0 0 1 198,395 V200 A58,58 0 0 1 256,142 Z" />
+        </group>
+        <path android:fillColor="#FFFFFFFF" android:pathData="M208,212 H430 A58,58 0 0 1 488,270 V465 A58,58 0 0 1 430,523 H208 A58,58 0 0 1 150,465 V270 A58,58 0 0 1 208,212 Z" />
+        <path android:fillColor="#FFFF8A3D" android:pathData="M367,299 a34,34 0 1,0 68,0 a34,34 0 1,0 -68,0 Z" />
+        <path android:fillColor="#FF2E2A6B" android:strokeColor="#FF2E2A6B" android:strokeWidth="4" android:strokeLineJoin="round"
+            android:pathData="M185,485 L279,361 L346,435 L387,395 L455,485 Z" />
+    </group>
 </vector>

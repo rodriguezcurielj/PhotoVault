@@ -1,6 +1,6 @@
 // Lets Gallery install as an app (Windows, Mac, Chromebook, Android). Pages always come from the
 // network; the last copy of the app itself is kept so it still opens when the server is down.
-const SHELL = 'gallery-shell-v1';
+const SHELL = 'gallery-shell-v2';
 const FILES = ['./', 'index.html', 'app.js', 'app.css', 'icon.svg', 'icon-192.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(self.clients.claim()); });
