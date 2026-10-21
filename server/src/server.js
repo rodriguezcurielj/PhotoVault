@@ -331,10 +331,39 @@ app.post('/api/import/zip', requireAuth, zipUpload.single('file'), (req, res) =>
 app.get('/api/import/status', requireAuth, (req, res) => res.json(importer.status));
 
 // ----- files -----
-function sendRendition(dir, req, res) {
+// Making thumbnails is CPU-heavy (HEIC ~3 s each), so a few run at once. Ones someone is waiting to see
+// go to the front of the line; the background fill-in waits at the back.
+const RENDER_SLOTS = 3;
+const renderQueue = [], rendering = new Map();
+let renderActive = 0;
+function pumpRenders() {
+  while (renderActive < RENDER_SLOTS && renderQueue.length) {
+    const job = renderQueue.shift();
+    renderActive++;
+    media.makeRenditions(job.a).catch(() => {}).finally(() => { renderActive--; rendering.delete(job.a.id); job.resolve(); pumpRenders(); });
+  }
+}
+function renderNow(a, urgent = true) {
+  let job = rendering.get(a.id);
+  if (!job) {
+    job = { a };
+    job.done = new Promise(r => { job.resolve = r; });
+    rendering.set(a.id, job);
+    if (urgent) renderQueue.unshift(job); else renderQueue.push(job);
+  } else if (urgent) {
+    const i = renderQueue.indexOf(job);
+    if (i > 0) { renderQueue.splice(i, 1); renderQueue.unshift(job); }
+  }
+  pumpRenders();
+  return job.done;
+}
+async function sendRendition(dir, req, res) {
   const a = getAsset(req.params.id);
   if (!a) return res.status(404).end();
   const file = path.join(dir, `${a.id}.webp`);
+  if (fs.existsSync(file)) return res.sendFile(file, { maxAge: '30d', immutable: true });
+  // Missing (failed earlier, or not made yet): make it now rather than sending a multi-MB original as a thumbnail.
+  await renderNow(a);
   if (fs.existsSync(file)) return res.sendFile(file, { maxAge: '30d', immutable: true });
   // No rendition (e.g. undecodable file): fall back to the original for images.
   if (a.type === 'image') return res.sendFile(path.join(cfg.LIBRARY_DIR, a.file), { maxAge: '30d' });
@@ -568,11 +597,10 @@ app.get('/api/share/:token/original/:id', (req, res) => {
 
 // ---------- background jobs ----------
 // Make any thumbnails that are missing (e.g. after restoring a backup of library/).
+// Newest first, since those are what's on screen when the app opens.
 async function fillRenditions() {
-  for (const a of db.prepare('SELECT * FROM assets').all()) {
-    if (!fs.existsSync(path.join(cfg.THUMB_DIR, `${a.id}.webp`))) {
-      try { await media.makeRenditions(a); } catch { /* undecodable, leave it */ }
-    }
+  for (const a of db.prepare('SELECT * FROM assets ORDER BY taken_at DESC').all()) {
+    if (!fs.existsSync(path.join(cfg.THUMB_DIR, `${a.id}.webp`))) renderNow(a, false);
   }
 }
 // Clear out abandoned partial uploads.

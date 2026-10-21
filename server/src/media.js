@@ -7,7 +7,7 @@ const sharp = require('sharp');
 const exifr = require('exifr');
 const { db } = require('./db');
 const geo = require('./geo');
-const { LIBRARY_DIR, THUMB_DIR, PREVIEW_DIR } = require('./config');
+const { LIBRARY_DIR, THUMB_DIR, PREVIEW_DIR, UPLOAD_TMP } = require('./config');
 
 const IMAGE_EXT = /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp|tiff?|dng)$/i;
 const VIDEO_EXT = /\.(mp4|mov|m4v|3gp|webm|mkv|avi)$/i;
@@ -85,9 +85,14 @@ async function decodable(file, type) {
     return null;
   }
   if (/\.(heic|heif)$/i.test(file)) {
-    try { await sharp(file).metadata(); return file; } catch { /* sharp build without HEVC; use the wasm decoder */ }
-    const convert = require('heic-convert');
-    return Buffer.from(await convert({ buffer: fs.readFileSync(file), format: 'JPEG', quality: 0.92 }));
+    // sharp's libvips can't decode iPhone HEVC photos. heif-convert (native libheif) runs in its own process,
+    // so the server keeps answering while it works; the JS decoder used before froze it ~1.5 s per photo.
+    const out = path.join(UPLOAD_TMP, `heic-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
+    try {
+      await run('heif-convert', ['-q', '92', file, out]);
+      // Its pixels are already upright but the EXIF still says "rotate"; re-encode without metadata so it isn't turned twice.
+      return await sharp(out).jpeg({ quality: 92 }).toBuffer();
+    } finally { fs.rmSync(out, { force: true }); }
   }
   return file;
 }

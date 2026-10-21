@@ -1,7 +1,7 @@
 FROM node:24-bookworm-slim
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl unzip tzdata \
+ && apt-get install -y --no-install-recommends ffmpeg libheif-examples ca-certificates curl unzip tzdata \
  && rm -rf /var/lib/apt/lists/*
 
 # City names for "where was this taken" (GeoNames, CC-BY 4.0).
