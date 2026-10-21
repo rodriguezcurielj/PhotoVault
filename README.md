@@ -1,6 +1,7 @@
 # Gallery (PhotoVault)
 
 **Download the Android app: [Gallery.apk](https://github.com/rodriguezcurielj/PhotoVault/releases/latest/download/Gallery.apk)** — open it on your phone and tap Install.
+**Windows uploader: [Gallery-Windows.exe](https://github.com/rodriguezcurielj/Pepes-Apps/releases/download/downloads/Gallery-Windows.exe)** — drop folders on it to upload thousands of photos/videos (`windows/`, build with `windows/build.ps1`).
 
 Self-hosted photo library: a Node server (Docker) that stores the photos, a web app, and an Android app.
 

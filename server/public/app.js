@@ -1285,6 +1285,8 @@ $('getAppBtn') && ($('getAppBtn').onclick = () => {
     h('div', {}, h('b', {}, 'Windows / Mac / Chromebook'), h('div', { class: 'muted' },
       installPrompt ? 'Installs Gallery as an app with its own window, Start menu and taskbar icon.'
         : `In ${edge ? 'Edge' : 'Chrome or Edge'}, click the install icon at the right end of the address bar (or ⋯ → ${edge ? 'Apps → Install Gallery' : 'Cast, save and share → Install page as app'}).`)),
+    h('div', {}, h('b', {}, 'Windows uploader'), h('div', { class: 'muted' }, 'A Windows app for sending thousands of photos and videos at once: drop folders on it, it skips ones already here and places them by date. '),
+      h('a', { class: 'link', href: 'https://github.com/rodriguezcurielj/Pepes-Apps/releases/download/downloads/Gallery-Windows.exe' }, 'Download Gallery for Windows')),
     h('div', {}, h('b', {}, 'Android'), h('div', { class: 'muted' }, 'Download the APK on your phone and open it. After that, use Settings → Update app inside the app.')),
     h('div', { class: 'actions' },
       h('button', { onclick: closeModal }, 'Close'),
