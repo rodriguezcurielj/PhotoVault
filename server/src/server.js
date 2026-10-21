@@ -9,6 +9,7 @@ const cfg = require('./config');
 const { db, getSetting, setSetting } = require('./db');
 const media = require('./media');
 const importer = require('./importer');
+const mail = require('./mail');
 
 // ---------- password + sessions ----------
 function hashPassword(pw, salt = crypto.randomBytes(16).toString('hex')) {
@@ -107,7 +108,10 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, '..', 'public'), { index: 'index.html' }));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, name: 'PhotoVault', version: 2 }));
-app.get('/api/status', (req, res) => res.json({ setup: !!getSetting('password'), authed: !!sessionOf(req), username: !!getSetting('username') }));
+app.get('/api/status', (req, res) => {
+  const authed = !!sessionOf(req);
+  res.json({ setup: !!getSetting('password'), authed, username: !!getSetting('username'), needsEmail: authed && !getSetting('email') });
+});
 
 app.post('/api/setup', (req, res) => {
   if (getSetting('password')) return res.status(400).json({ error: 'Already set up' });
@@ -139,6 +143,76 @@ app.post('/api/password', requireAuth, (req, res) => {
   if (pw.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
   setSetting('password', hashPassword(pw));
   res.json({ ok: true });
+});
+
+// Checks the current password before the apps ask for a new one.
+app.post('/api/password/verify', requireAuth, async (req, res) => {
+  if (recentFailures(req.ip)) return res.status(429).json({ error: 'Too many wrong tries. Wait 15 minutes.' });
+  if (checkPassword(String(req.body.password || ''))) return res.json({ ok: true });
+  failures.push({ at: now(), ip: req.ip });
+  await new Promise(r => setTimeout(r, 800));
+  res.status(401).json({ error: 'That password is wrong' });
+});
+
+// ----- profile -----
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const profileJson = () => ({
+  username: getSetting('username') || '', name: getSetting('name') || '', email: getSetting('email') || '',
+  avatar: Number(getSetting('avatar')) || null, mailReady: mail.ready(),
+});
+app.get('/api/profile', requireAuth, (req, res) => res.json(profileJson()));
+app.patch('/api/profile', requireAuth, async (req, res) => {
+  const b = req.body;
+  if (b.name != null) setSetting('name', String(b.name).trim().slice(0, 80));
+  if (b.avatar !== undefined) setSetting('avatar', b.avatar ? String(Number(b.avatar)) : '');
+  if (b.email != null) {
+    const email = String(b.email).trim().toLowerCase();
+    if (!EMAIL.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
+    // Replacing the recovery email needs the password; adding the first one doesn't.
+    if (getSetting('email') && !checkPassword(String(b.password || ''))) return res.status(401).json({ error: 'Enter your current password to change your email' });
+    setSetting('email', email);
+    if (mail.ready()) mail.send(email, 'Your Gallery recovery email', 'This address will get a code if you ever forget your Gallery password.')
+      .catch(e => console.warn(`mail failed: ${e.message}`));
+  }
+  res.json(profileJson());
+});
+
+// ----- forgot password: a 6-digit code goes to the recovery email -----
+let resetCode = null; // { hash, expires, tries }
+const forgotLog = [];
+const sha = s => crypto.createHash('sha256').update(s).digest('hex');
+const maskEmail = e => e.replace(/^(.)(.*)(@.*)$/, (m, a, b, c) => a + '•'.repeat(Math.min(b.length, 6)) + c);
+app.post('/api/forgot', async (req, res) => {
+  while (forgotLog.length && forgotLog[0] < now() - 15 * 60e3) forgotLog.shift();
+  if (forgotLog.length >= 5) return res.status(429).json({ error: 'Too many codes sent. Wait 15 minutes.' });
+  const want = getSetting('username');
+  if (want && String(req.body.username || '').trim().toLowerCase() !== want.toLowerCase()) return res.status(400).json({ error: 'That username doesn’t exist' });
+  const email = getSetting('email');
+  if (!email) return res.status(400).json({ error: 'This account has no recovery email.' });
+  if (!mail.ready()) return res.status(503).json({ error: 'Email isn’t set up on the server yet.' });
+  forgotLog.push(now());
+  const code = String(crypto.randomInt(100000, 1000000));
+  resetCode = { hash: sha(code), expires: now() + 15 * 60e3, tries: 0 };
+  try {
+    await mail.send(email, `Gallery reset code: ${code}`,
+      `Your Gallery password reset code is ${code}. It works for 15 minutes. If you didn't ask for this, ignore this email.`,
+      `<div style="font:16px -apple-system,Segoe UI,sans-serif"><p>Your Gallery password reset code:</p><p style="font-size:32px;font-weight:700;letter-spacing:6px">${code}</p><p style="color:#888">It works for 15 minutes. If you didn't ask for this, ignore this email.</p></div>`);
+  } catch (e) {
+    console.warn(`mail failed: ${e.message}`);
+    return res.status(502).json({ error: 'Couldn’t send the email. Try again later.' });
+  }
+  res.json({ ok: true, sentTo: maskEmail(email) });
+});
+app.post('/api/reset', (req, res) => {
+  const r = resetCode;
+  if (!r || r.expires < now() || r.tries >= 5) return res.status(400).json({ error: 'That code expired. Ask for a new one.' });
+  if (sha(String(req.body.code || '').trim()) !== r.hash) { r.tries++; return res.status(400).json({ error: 'Wrong code' }); }
+  const pw = String(req.body.password || '');
+  if (pw.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+  resetCode = null;
+  setSetting('password', hashPassword(pw));
+  db.prepare('DELETE FROM sessions').run(); // sign out everywhere else
+  res.json({ ok: true, token: newSession(res, req.body.device) });
 });
 
 // Locked folder: needs the password again on every visit, sent as X-Unlock.

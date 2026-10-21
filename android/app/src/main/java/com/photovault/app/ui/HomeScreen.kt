@@ -178,9 +178,9 @@ fun LibraryTab() {
                 else {
                     BackupBadge()
                     Capsule("Select", onPhotos = true) { selection.mode = true }
-                    Capsule(icon = Icons.Filled.MoreHoriz, onPhotos = true) { app.push(Screen.Settings) }
+                    ProfileButton { app.push(Screen.Settings) }
                 }
-            } else Capsule(icon = Icons.Filled.MoreHoriz, onPhotos = false) { app.push(Screen.Settings) }
+            } else ProfileButton { app.push(Screen.Settings) }
         }
         if (selection.active) SelectionBottomBar(selection, items, Modifier.align(Alignment.BottomCenter))
         else ZoomSwitcher(mode, { mode = it }, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 62.dp))

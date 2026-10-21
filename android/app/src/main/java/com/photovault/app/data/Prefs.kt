@@ -41,6 +41,13 @@ class Prefs(context: Context) {
     var lastSync: Long
         get() = p.getLong("lastSync", 0)
         set(v) = p.edit().putLong("lastSync", v).apply()
+    /** "system" | "light" | "dark" */
+    var theme: String
+        get() = p.getString("theme", "system") ?: "system"
+        set(v) = p.edit().putString("theme", v).apply()
+    var accent: Long
+        get() = p.getLong("accent", 0xFF007AFF)
+        set(v) = p.edit().putLong("accent", v).apply()
     var askedDefault: Boolean
         get() = p.getBoolean("askedDefault", false)
         set(v) = p.edit().putBoolean("askedDefault", v).apply()

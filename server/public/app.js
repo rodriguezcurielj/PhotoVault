@@ -10,10 +10,58 @@ const h = (tag, attrs = {}, ...kids) => {
   for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(kid));
   return el;
 };
+// Line icons (24px grid, drawn with the current text colour).
+const ICONS = {
+  library: '<rect x="3" y="6" width="14" height="14" rx="2.5"/><path d="M7 3h11a3 3 0 0 1 3 3v11"/>',
+  compass: '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
+  heart: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z"/>',
+  video: '<rect x="3" y="6" width="13" height="12" rx="2.5"/><path d="m16 10.5 5-3v9l-5-3"/>',
+  pin: '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>',
+  album: '<rect x="3" y="3" width="18" height="18" rx="3.5"/><path d="m3.5 16.5 5-5 4 4 3-3 5 5"/><circle cx="15.5" cy="8" r="1.4"/>',
+  import: '<path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
+  upload: '<path d="M12 16V5M7.5 9.5 12 5l4.5 4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
+  download: '<path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  archive: '<rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9M10 13h4"/>',
+  hidden: '<path d="M3 3l18 18"/><path d="M10.6 6.1A9.7 9.7 0 0 1 12 6c5 0 9 6 9 6a16 16 0 0 1-3 3.4M6.6 7.6C4.4 9.2 3 12 3 12s4 6 9 6a8.7 8.7 0 0 0 4-.9"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+  trash: '<path d="M4 7h16M9.5 7V4.5h5V7M6 7l1 13h10l1-13M10 11v5M14 11v5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  minus: '<path d="M5 12h14"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  share: '<path d="M12 3v12M8 7l4-4 4 4"/><path d="M7 11H6v9h12v-9h-1"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.6v.2"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
+  more: '<circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/>',
+  back: '<path d="m15 5-7 7 7 7"/>',
+  chevron: '<path d="m9 6 6 6-6 6"/>',
+  person: '<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
+  logout: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 8l-4 4 4 4M6 12h10"/>',
+  device: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
+};
+function ic(name, filled) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'ic' + (filled ? ' filled' : ''));
+  svg.innerHTML = ICONS[name] || '';
+  return svg;
+}
+document.querySelectorAll('[data-icon]').forEach(el => el.replaceChildren(ic(el.dataset.icon)));
+
 const store = {
   get(k, d) { try { const v = localStorage.getItem('pv.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('pv.' + k, JSON.stringify(v)); } catch { /* private mode */ } },
 };
+
+// ---------------------------------------------------------------- theme (saved per device)
+const ACCENTS = [['Blue', '#0071e3'], ['Purple', '#6e5ce6'], ['Pink', '#e8457c'], ['Red', '#e5383b'], ['Orange', '#f08c00'], ['Green', '#2fa84f'], ['Teal', '#1b9aaa'], ['Graphite', '#6e6e73']];
+function applyTheme() {
+  const t = store.get('theme', 'system');
+  if (t === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.dataset.theme = t;
+  document.documentElement.style.setProperty('--accent', store.get('accent', ACCENTS[0][1]));
+}
+applyTheme();
 
 const state = {
   assets: new Map(),     // id -> asset (everything except the locked folder)
@@ -61,7 +109,7 @@ function showAuth(needsSetup) {
   $('app').classList.add('hidden');
   $('auth').classList.remove('hidden');
   $('authMsg').textContent = needsSetup ? 'Pick a username and password for Gallery.' : 'Sign in to your photos.';
-  $('authBtn').textContent = needsSetup ? 'Create login' : 'Log in';
+  $('authBtn').textContent = needsSetup ? 'Create Account' : 'Sign In';
   $('user').focus();
 }
 $('authForm').onsubmit = async e => {
@@ -76,6 +124,35 @@ $('authForm').onsubmit = async e => {
   } catch (err) { $('authErr').textContent = err.message; }
   $('authBtn').disabled = false;
 };
+$('forgotLink').onclick = () => forgotPassword();
+function forgotPassword() {
+  const user = h('input', { type: 'text', placeholder: 'Username', value: $('user').value, autocapitalize: 'none' });
+  const err = h('div', { class: 'muted' });
+  modal(h('h3', {}, 'Forgot your password?'),
+    h('div', { class: 'muted' }, 'We’ll email a 6-digit code to the recovery email on your account.'), user, err,
+    h('div', { class: 'actions' }, h('button', { onclick: closeModal }, 'Cancel'),
+      h('button', { class: 'primary', onclick: async () => {
+        try {
+          const r = await api('/api/forgot', { method: 'POST', body: { username: user.value } });
+          enterResetCode(r.sentTo);
+        } catch (e) { err.textContent = e.message; }
+      } }, 'Send Code')));
+}
+function enterResetCode(sentTo) {
+  const code = h('input', { type: 'text', placeholder: '6-digit code', inputmode: 'numeric', autocomplete: 'one-time-code' });
+  const pw = h('input', { type: 'password', placeholder: 'New password', autocomplete: 'new-password' });
+  const pw2 = h('input', { type: 'password', placeholder: 'New password again', autocomplete: 'new-password' });
+  const err = h('div', { class: 'muted' });
+  modal(h('h3', {}, 'Check your email'), h('div', { class: 'muted' }, `We sent a code to ${sentTo}. It works for 15 minutes.`), code, pw, pw2, err,
+    h('div', { class: 'actions' }, h('button', { onclick: closeModal }, 'Cancel'),
+      h('button', { class: 'primary', onclick: async () => {
+        if (pw.value !== pw2.value) { err.textContent = 'The passwords don’t match'; return; }
+        try {
+          const r = await api('/api/reset', { method: 'POST', body: { code: code.value, password: pw.value, device: 'browser' } });
+          saveToken(r.token); closeModal(); toast('Password changed'); start();
+        } catch (e) { err.textContent = e.message; }
+      } }, 'Change Password')));
+}
 $('logoutBtn').onclick = async () => { await api('/api/logout', { method: 'POST' }).catch(() => {}); saveToken(null); state.assets.clear(); showAuth(false); };
 
 // ---------------------------------------------------------------- data
@@ -111,7 +188,9 @@ function route() {
   const arg = decodeURIComponent(rest.join('/'));
   state.view = view;
   clearSelection();
-  document.querySelectorAll('#nav a[data-view]').forEach(a => a.classList.toggle('active', a.dataset.view === view));
+  const full = location.hash.slice(1) || 'photos';
+  document.querySelectorAll('#nav a[data-view]').forEach(a => a.classList.toggle('active', a.dataset.view === full || a.dataset.view === view));
+  $('profileMenu').classList.add('hidden');
   $('nav').classList.remove('open');
   const c = $('content');
   c.innerHTML = '';
@@ -121,8 +200,9 @@ function route() {
     videos: () => viewSimple('Videos', 'videos', 'Videos you upload show up here.'),
     archive: () => viewSimple('Archive', 'archive', 'Archived photos are hidden from Photos but stay in albums and search.'),
     trash: viewTrash, albums: viewAlbums, album: () => viewAlbum(Number(arg)), explore: viewExplore,
-    search: () => viewSearch(arg), place: () => viewSearch(arg, true), map: viewMap, locked: viewLocked, links: viewLinks, import: viewImport,
+    search: () => viewSearch(arg), place: () => viewSearch(arg, true), map: viewMap, locked: viewLocked, links: viewLinks, import: viewImport, profile: viewProfile,
   }[view] || viewPhotos)();
+  if (view === 'albums' || view === 'album') renderNavAlbums();
 }
 document.querySelectorAll('#nav a[data-view]').forEach(a => (a.onclick = () => go(a.dataset.view)));
 $('navBtn').onclick = () => $('nav').classList.toggle('open');
@@ -302,8 +382,8 @@ function modal(...content) {
   const first = box.querySelector('input,textarea');
   if (first) setTimeout(() => first.focus(), 30);
 }
-const closeModal = () => $('modal').classList.add('hidden');
-$('modal').onclick = e => { if (e.target === $('modal')) closeModal(); };
+const closeModal = () => { modal.locked = false; $('modal').classList.add('hidden'); };
+$('modal').onclick = e => { if (e.target === $('modal') && !modal.locked) closeModal(); };
 function confirmDo(title, body, label, fn) {
   modal(h('h3', {}, title), h('div', { class: 'muted' }, body),
     h('div', { class: 'actions' }, h('button', { onclick: closeModal }, 'Cancel'), h('button', { class: 'primary', onclick: () => { closeModal(); fn(); } }, label)));
@@ -358,9 +438,11 @@ function adjustDate(ids) {
 // ---------------------------------------------------------------- views
 async function viewPhotos() {
   const c = $('content');
+  const list = all().filter(viewFilters.photos);
+  const vids = list.filter(a => a.type === 'video').length;
+  c.append(libraryHeader('Library', `${(list.length - vids).toLocaleString()} Photos, ${vids.toLocaleString()} Videos`));
   const mem = h('div', { class: 'memories' });
   c.append(mem);
-  const list = all().filter(viewFilters.photos);
   renderGrid(c, list, { empty: h('div', { class: 'empty' }, h('strong', {}, 'Your library is empty'), 'Click Upload, drag photos here, or turn on backup in the Gallery Android app.') });
   try {
     const groups = await api('/api/memories');
@@ -372,15 +454,24 @@ async function viewPhotos() {
     }
   } catch { mem.remove(); }
 }
+// iCloud-style sticky header: title, item count, zoom and upload buttons.
+function libraryHeader(title, sub, ...extra) {
+  const zoom = f => { store.set('tile', Math.max(90, Math.min(360, tileSize() * f))); applyTileSize(); };
+  return h('div', { class: 'toolbar' }, h('div', { class: 'titles' }, h('h2', {}, title), sub ? h('div', { class: 'sub' }, sub) : null), ...extra,
+    h('button', { class: 'icon', title: 'Smaller', onclick: () => zoom(0.85) }, ic('minus')),
+    h('button', { class: 'icon', title: 'Bigger', onclick: () => zoom(1.18) }, ic('plus')),
+    h('button', { class: 'icon', title: 'Upload', onclick: () => $('uploadBtn').click() }, ic('upload')));
+}
 function viewSimple(title, filter, emptyText) {
   const c = $('content');
-  c.append(h('div', { class: 'toolbar' }, h('h2', {}, title)));
-  renderGrid(c, all().filter(viewFilters[filter]), { empty: h('div', { class: 'empty' }, h('strong', {}, `No ${title.toLowerCase()} yet`), emptyText) });
+  const list = all().filter(viewFilters[filter]);
+  c.append(libraryHeader(title, `${list.length.toLocaleString()} items`));
+  renderGrid(c, list, { empty: h('div', { class: 'empty' }, h('strong', {}, `No ${title.toLowerCase()} yet`), emptyText) });
 }
 function viewTrash() {
   const c = $('content');
   const list = all().filter(viewFilters.trash).sort((a, b) => b.trashedAt - a.trashedAt);
-  c.append(h('div', { class: 'toolbar' }, h('h2', {}, 'Trash'),
+  c.append(h('div', { class: 'toolbar' }, h('h2', {}, 'Recently Deleted'),
     list.length ? h('button', { class: 'danger', onclick: () => confirmDo('Empty trash?', `${list.length} items will be deleted forever.`, 'Empty trash', async () => {
       await api('/api/trash/empty', { method: 'POST' }); await sync(true); route(); refreshStats(); toast('Trash emptied');
     }) }, 'Empty trash') : null),
@@ -395,15 +486,15 @@ async function viewAlbums() {
   const albums = await api('/api/albums');
   const cards = h('div', { class: 'cards' });
   cards.append(
-    card('♥', 'Favorites', all().filter(viewFilters.favorites).length + ' items', () => go('favorites'), all().find(viewFilters.favorites)),
-    card('▶', 'Videos', all().filter(viewFilters.videos).length + ' items', () => go('videos'), all().find(viewFilters.videos)),
-    card('🔗', 'Shared links', 'Photos & videos you shared', () => go('links')));
-  for (const al of albums) cards.append(card('❐', al.name, `${al.count} items${al.shareToken ? ' · shared' : ''}`, () => go('album/' + al.id), al.cover && { id: al.cover }));
+    card('heart', 'Favorites', all().filter(viewFilters.favorites).length + ' items', () => go('favorites'), all().find(viewFilters.favorites)),
+    card('video', 'Videos', all().filter(viewFilters.videos).length + ' items', () => go('videos'), all().find(viewFilters.videos)),
+    card('link', 'Shared links', 'Photos & videos you shared', () => go('links')));
+  for (const al of albums) cards.append(card('album', al.name, `${al.count} items${al.shareToken ? ' · shared' : ''}`, () => go('album/' + al.id), al.cover && { id: al.cover }));
   c.append(cards);
 }
 function card(icon, title, sub, onclick, coverAsset) {
   return h('div', { class: 'card', onclick },
-    h('div', { class: 'cover' }, coverAsset ? h('img', { src: src(`/api/assets/${coverAsset.id}/thumb`), loading: 'lazy' }) : icon),
+    h('div', { class: 'cover' }, coverAsset ? h('img', { src: src(`/api/assets/${coverAsset.id}/thumb`), loading: 'lazy' }) : ICONS[icon] ? ic(icon) : icon),
     h('div', { class: 't' }, title), h('div', { class: 's' }, sub));
 }
 async function viewAlbum(id) {
@@ -421,7 +512,7 @@ async function viewAlbum(id) {
     ['Slideshow', () => al.assets.length && playStory({ title: al.name, assets: al.assets })],
     ['Delete album', () => confirmDo('Delete album?', 'The photos stay in your library.', 'Delete', async () => { await api('/api/albums/' + id, { method: 'DELETE' }); go('albums'); })],
   ]);
-  c.append(h('div', { class: 'toolbar' }, h('button', { class: 'icon', onclick: () => go('albums') }, '←'), h('h2', {}, al.name),
+  c.append(h('div', { class: 'toolbar' }, h('button', { class: 'icon', onclick: () => go('albums') }, ic('back')), h('h2', {}, al.name),
     h('button', { onclick: () => shareAlbum(al) }, shareUrl ? '🔗 Shared' : '🔗 Share'), more),
     h('div', { class: 'muted', style: 'margin:0 4px 8px' }, `${al.count} items`));
   renderGrid(c, al.assets, { empty: h('div', { class: 'empty' }, h('strong', {}, 'This album is empty'), 'Select photos anywhere and choose “Add to album”.') });
@@ -507,11 +598,11 @@ function viewImport() {
 
 async function viewLinks() {
   const c = $('content');
-  c.append(h('div', { class: 'toolbar' }, h('button', { class: 'icon', onclick: () => go('albums') }, '←'), h('h2', {}, 'Shared links')),
+  c.append(h('div', { class: 'toolbar' }, h('button', { class: 'icon', onclick: () => go('albums') }, ic('back')), h('h2', {}, 'Shared links')),
     h('div', { class: 'muted', style: 'margin:0 4px 12px' }, 'Links to single photos, videos or selections. Album links are turned off from the album.'));
   const links = await api('/api/links');
   if (!links.length) { c.append(h('div', { class: 'empty' }, h('strong', {}, 'No links yet'), 'Open a photo or select some and choose “Get link”.')); return; }
-  const list = h('div', { class: 'links' });
+  const list = h('div', { class: 'links panel' });
   for (const l of links) {
     const url = `${SERVER || location.origin}/s/${l.token}`;
     list.append(h('div', { class: 'linkrow' },
@@ -541,14 +632,15 @@ function addToAlbumFromLibrary(id) {
 async function viewExplore() {
   const c = $('content');
   const list = all().filter(viewFilters.photos);
+  c.append(h('div', { class: 'toolbar' }, h('h2', {}, 'Memories & Places')));
   const chips = [['Videos', 'videos'], ['Favorites', 'favorites'], ['Screenshots', 'screenshots'], ['Selfies', 'selfie'], ['Recently added', null]];
-  c.append(h('h2', { class: 'section' }, 'Categories'),
+  c.append(h('h2', { class: 'section', style: 'margin-top:8px' }, 'Categories'),
     h('div', { class: 'chips' }, chips.map(([label, q]) => h('button', { class: 'chip', onclick: () => (q ? go('search/' + q) : go('search/__recent')) }, label)),
       h('button', { class: 'chip', onclick: () => go('map') }, '⌖ Map')));
   const places = await api('/api/places');
   if (places.length) {
     c.append(h('h2', { class: 'section' }, 'Places'),
-      h('div', { class: 'cards' }, places.slice(0, 60).map(p => card('⌖', p.name, `${p.count} · ${[p.region, p.country].filter(Boolean).join(', ')}`, () => go('place/' + p.city), { id: p.cover }))));
+      h('div', { class: 'cards' }, places.slice(0, 60).map(p => card('pin', p.name, `${p.count} · ${[p.region, p.country].filter(Boolean).join(', ')}`, () => go('place/' + p.city), { id: p.cover }))));
   }
   const cameras = new Map();
   for (const a of list) if (a.model) cameras.set(a.model, (cameras.get(a.model) || 0) + 1);
@@ -604,7 +696,7 @@ function withUnlock(fn) {
 async function loadLocked() { state.locked = (await api('/api/assets?locked=1')).assets; }
 function viewLocked() {
   const c = $('content');
-  c.append(h('div', { class: 'toolbar' }, h('h2', {}, '🔒 Locked folder'), state.lockedPw ? h('button', { onclick: () => { state.lockedPw = null; route(); } }, 'Lock now') : null));
+  c.append(h('div', { class: 'toolbar' }, h('h2', {}, 'Hidden'), state.lockedPw ? h('button', { onclick: () => { state.lockedPw = null; route(); } }, 'Lock now') : null));
   if (!state.lockedPw) {
     c.append(h('div', { class: 'empty' }, h('strong', {}, 'Locked folder'), 'Photos here are hidden from Photos, search, albums and the map.', h('br'), h('br'),
       h('button', { class: 'primary', onclick: () => withUnlock(route) }, 'Unlock')));
@@ -726,7 +818,7 @@ function show(i) {
     const img = h('img', { src: preview(a), alt: '', draggable: 'false' });
     s.append(img);
   }
-  $('vFav').textContent = a.favorite ? '♥' : '♡';
+  $('vFav').replaceChildren(ic('heart', a.favorite));
   $('vFav').style.color = a.favorite ? '#ff6b81' : '';
   $('vEdit').classList.toggle('hidden', a.type !== 'image' || !!a.trashedAt);
   $('vDelete').title = a.trashedAt ? 'Delete forever' : 'Delete (Del)';
@@ -1040,6 +1132,133 @@ $('eSave').onclick = async () => {
   $('eSave').disabled = false;
 };
 
+// ---------------------------------------------------------------- sidebar albums
+async function renderNavAlbums() {
+  const albums = await api('/api/albums').catch(() => []);
+  const box = $('navAlbums');
+  box.replaceChildren(...albums.slice(0, 30).map(al => {
+    const a = h('a', { 'data-view': 'album/' + al.id, title: al.name, onclick: () => go('album/' + al.id) },
+      h('span', { class: 'i' }, al.cover ? h('img', { src: src(`/api/assets/${al.cover}/thumb`), loading: 'lazy', alt: '' }) : ic('album')), al.name);
+    if (location.hash.slice(1) === 'album/' + al.id) a.classList.add('active');
+    return a;
+  }));
+}
+$('newAlbumBtn').onclick = () => prompt2('New album', '', 'Create', async name => {
+  const al = await api('/api/albums', { method: 'POST', body: { name } });
+  await renderNavAlbums(); go('album/' + al.id);
+});
+
+// ---------------------------------------------------------------- profile
+function initials(p) { return ((p.name || p.username || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2) || '?').toUpperCase(); }
+function fillAvatar(el, p) {
+  el.replaceChildren(p.avatar ? h('img', { src: src(`/api/assets/${p.avatar}/thumb`), alt: '' }) : initials(p));
+}
+async function loadProfile() {
+  state.profile = await api('/api/profile');
+  const p = state.profile;
+  fillAvatar($('avatarBtn'), p); fillAvatar($('pmAvatar'), p);
+  $('pmName').textContent = p.name || p.username;
+  $('pmEmail').textContent = p.email || 'No email yet';
+}
+$('avatarBtn').onclick = e => { e.stopPropagation(); $('profileMenu').classList.toggle('hidden'); };
+document.addEventListener('click', e => { if (!e.target.closest('#profileMenu')) $('profileMenu').classList.add('hidden'); });
+$('profileBtn').onclick = () => go('profile');
+
+// Asked right after signing in when the account has no recovery email; can't be skipped.
+function requireEmail() {
+  const email = h('input', { type: 'email', placeholder: 'you@example.com', autocomplete: 'email' });
+  const err = h('div', { class: 'muted' });
+  modal(h('h3', {}, 'Add a recovery email'),
+    h('div', { class: 'muted' }, 'If you ever forget your password, Gallery emails a code here so you can reset it.'), email, err,
+    h('div', { class: 'actions' }, h('button', { class: 'primary', onclick: async () => {
+      try { await api('/api/profile', { method: 'PATCH', body: { email: email.value } }); closeModal(); await loadProfile(); toast('Recovery email saved'); }
+      catch (e) { err.textContent = e.message; }
+    } }, 'Save')));
+  modal.locked = true;
+}
+
+// Change password: check the current one first, then ask for the new one.
+function changePassword() {
+  const cur = h('input', { type: 'password', placeholder: 'Current password', autocomplete: 'current-password' });
+  const err = h('div', { class: 'muted' });
+  modal(h('h3', {}, 'Change password'), h('div', { class: 'muted' }, 'First, enter your current password.'), cur, err,
+    h('div', { class: 'actions' }, h('button', { onclick: closeModal }, 'Cancel'),
+      h('button', { class: 'primary', onclick: async () => {
+        try { await api('/api/password/verify', { method: 'POST', body: { password: cur.value } }); newPassword(cur.value); }
+        catch (e) { err.textContent = e.message; }
+      } }, 'Continue')));
+}
+function newPassword(current) {
+  const pw = h('input', { type: 'password', placeholder: 'New password', autocomplete: 'new-password' });
+  const pw2 = h('input', { type: 'password', placeholder: 'New password again', autocomplete: 'new-password' });
+  const err = h('div', { class: 'muted' });
+  modal(h('h3', {}, 'New password'), h('div', { class: 'muted' }, 'At least 4 characters.'), pw, pw2, err,
+    h('div', { class: 'actions' }, h('button', { onclick: closeModal }, 'Cancel'),
+      h('button', { class: 'primary', onclick: async () => {
+        if (pw.value !== pw2.value) { err.textContent = 'The passwords don’t match'; return; }
+        try { await api('/api/password', { method: 'POST', body: { current, password: pw.value } }); closeModal(); toast('Password changed'); }
+        catch (e) { err.textContent = e.message; }
+      } }, 'Change Password')));
+}
+function changeEmail() {
+  const email = h('input', { type: 'email', placeholder: 'New email', value: state.profile.email || '' });
+  const pw = h('input', { type: 'password', placeholder: 'Current password', autocomplete: 'current-password' });
+  const err = h('div', { class: 'muted' });
+  modal(h('h3', {}, 'Recovery email'), email, pw, err,
+    h('div', { class: 'actions' }, h('button', { onclick: closeModal }, 'Cancel'),
+      h('button', { class: 'primary', onclick: async () => {
+        try { await api('/api/profile', { method: 'PATCH', body: { email: email.value, password: pw.value } }); closeModal(); await loadProfile(); route(); toast('Email saved'); }
+        catch (e) { err.textContent = e.message; }
+      } }, 'Save')));
+}
+function pickAvatar() {
+  const photos = all().filter(a => viewFilters.photos(a) && a.type === 'image').slice(0, 300);
+  modal(h('h3', {}, 'Profile photo'),
+    h('div', { class: 'avatarpick' }, photos.map(a => h('img', { src: thumb(a), loading: 'lazy', onclick: async () => {
+      await api('/api/profile', { method: 'PATCH', body: { avatar: a.id } }); closeModal(); await loadProfile(); route();
+    } }))),
+    h('div', { class: 'actions' },
+      state.profile.avatar ? h('button', { class: 'danger', onclick: async () => { await api('/api/profile', { method: 'PATCH', body: { avatar: null } }); closeModal(); await loadProfile(); route(); } }, 'Remove Photo') : null,
+      h('button', { onclick: closeModal }, 'Cancel')));
+}
+async function viewProfile() {
+  const c = $('content');
+  if (!state.profile) await loadProfile();
+  const p = state.profile;
+  const page = h('div', { class: 'page' });
+  c.append(h('div', { class: 'toolbar' }, h('div', { class: 'titles' }, h('h2', {}, 'Profile & Settings'))), page);
+  const big = h('div', { class: 'avatar huge', title: 'Change photo', onclick: pickAvatar });
+  fillAvatar(big, p);
+  page.append(h('div', { class: 'profilehead' }, big, h('div', { class: 'name' }, p.name || p.username), h('div', { class: 'muted' }, '@' + p.username)));
+  const row = (label, sub, right, onclick) => h('div', { class: 'prow' + (onclick ? ' click' : ''), onclick },
+    h('div', { class: 'lbl' }, h('div', {}, label), sub ? h('div', { class: 's' }, sub) : null), right || (onclick ? h('span', { class: 'muted' }, ic('chevron')) : null));
+
+  page.append(h('div', { class: 'panelhead' }, 'Account'), h('div', { class: 'panel' },
+    row('Name', p.name || 'Add your name', null, () => prompt2('Your name', p.name, 'Save', async name => { await api('/api/profile', { method: 'PATCH', body: { name } }); await loadProfile(); route(); })),
+    row('Recovery email', (p.email || 'Not set') + (p.mailReady ? '' : ' · reset emails aren’t turned on on the server yet'), null, changeEmail),
+    row('Password', 'Change your password', null, changePassword),
+    row('Profile photo', 'Pick one of your photos', null, pickAvatar)));
+
+  const seg = h('div', { class: 'seg' }, [['system', 'Automatic'], ['light', 'Light'], ['dark', 'Dark']].map(([k, label]) =>
+    h('button', { class: store.get('theme', 'system') === k ? 'on' : '', onclick: () => { store.set('theme', k); applyTheme(); route(); } }, label)));
+  const swatches = h('div', { class: 'swatches' }, ACCENTS.map(([name, col]) =>
+    h('button', { class: 'swatch' + (store.get('accent', ACCENTS[0][1]) === col ? ' on' : ''), title: name, style: `background:${col}`, onclick: () => { store.set('accent', col); applyTheme(); route(); } })));
+  const sizes = h('div', { class: 'seg' }, [['Small', 120], ['Medium', 180], ['Large', 260]].map(([label, px]) =>
+    h('button', { class: Math.abs(tileSize() - px) < 25 ? 'on' : '', onclick: () => { store.set('tile', px); applyTileSize(); route(); } }, label)));
+  page.append(h('div', { class: 'panelhead' }, 'Appearance'), h('div', { class: 'panel' },
+    row('Theme', null, seg), row('Accent color', null, swatches), row('Photo size', null, sizes)));
+
+  const st = await api('/api/stats').catch(() => ({}));
+  page.append(h('div', { class: 'panelhead' }, 'Library'), h('div', { class: 'panel' },
+    row('Photos', null, h('span', { class: 'muted' }, (st.photos || 0).toLocaleString())),
+    row('Videos', null, h('span', { class: 'muted' }, (st.videos || 0).toLocaleString())),
+    row('Space used', st.freeBytes ? `${fmtBytes(st.freeBytes)} free on the server` : null, h('span', { class: 'muted' }, fmtBytes(st.bytes || 0)))));
+
+  page.append(h('div', { class: 'panelhead' }, ''), h('div', { class: 'panel' },
+    row('Get the app', 'Windows, Mac, Android', null, () => $('getAppBtn') ? $('getAppBtn').click() : toast('You’re using the app')),
+    h('div', { class: 'prow click', onclick: () => $('logoutBtn').click() }, h('div', { class: 'lbl', style: 'color:var(--danger)' }, 'Sign Out'))));
+}
+
 // ---------------------------------------------------------------- boot
 async function start() {
   $('auth').classList.add('hidden');
@@ -1047,6 +1266,8 @@ async function start() {
   await sync(true);
   route();
   refreshStats();
+  loadProfile().then(() => { if (!state.profile.email) requireEmail(); }).catch(() => {});
+  renderNavAlbums();
 }
 // Pick up photos uploaded from the phone while the page is open.
 setInterval(async () => { if (appVisible() && !document.hidden && V.i < 0 && !state.sel.size) { const n = state.assets.size; await sync().catch(() => {}); if (state.assets.size !== n && ['photos', 'videos', 'favorites'].includes(state.view)) route(); } }, 30000);

@@ -9,6 +9,11 @@ services:
     environment:
       - TZ=America/Chicago
       - DB_DIR=/db
+      # Email for password reset codes (values live in .env on the server, never in git).
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-465}
     volumes:
       # Photos, thumbnails and previews. On budget-pc this is the 2 TB D: drive (set in .env).
       - ${PHOTOVAULT_DATA:-./data}:/data

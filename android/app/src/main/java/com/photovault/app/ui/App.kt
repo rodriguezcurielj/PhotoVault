@@ -36,6 +36,7 @@ sealed interface Screen {
     data object FreeUp : Screen
     data object Folders : Screen
     data object Import : Screen
+    data object Profile : Screen
     data class Story(val memory: Memory) : Screen
 }
 
@@ -99,8 +100,13 @@ fun App(actions: Actions, initial: Screen? = null, onExit: (() -> Unit)? = null)
                     Screen.FreeUp -> FreeUpScreen()
                     Screen.Folders -> FoldersScreen()
                     Screen.Import -> ImportScreen()
+                    Screen.Profile -> ProfileScreen()
                     is Screen.Story -> StoryScreen(s.memory)
                 }
+            }
+            if (loggedIn) {
+                androidx.compose.runtime.LaunchedEffect(Unit) { Repo.refreshProfile() }
+                RequireEmailDialog()
             }
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
         }

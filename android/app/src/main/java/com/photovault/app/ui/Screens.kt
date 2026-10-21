@@ -525,7 +525,7 @@ fun FreeUpScreen() {
 fun MapScreen() {
     val app = LocalApp.current
     val all by Repo.all.collectAsState()
-    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val dark = isDark()
     val geo = remember(all) { all.filter { it.remote?.lat != null && it.remote.trashedAt == null && !it.remote.archived } }
     val data = remember(geo) {
         JSONArray().apply {

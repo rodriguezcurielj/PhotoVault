@@ -42,6 +42,7 @@ object Repo {
     val albums = MutableStateFlow<List<Album>>(emptyList())
     val memories = MutableStateFlow<List<Memory>>(emptyList())
     val loggedIn = MutableStateFlow(false)
+    val profile = MutableStateFlow<Api.Profile?>(null)
 
     /** Every item, phone + server, merged (includes archived and trashed server items). */
     val all: StateFlow<List<MediaItem>> = combine(local, remote, backed) { l, r, b -> merge(l, r, b) }
@@ -63,6 +64,8 @@ object Repo {
     }
 
     private fun merge(l: List<LocalItem>, r: Map<Long, RemoteAsset>, b: Map<Long, BackupDb.Entry>): List<MediaItem> {
+        // `all` starts as soon as Repo exists, which can be a moment before init() has loaded prefs.
+        if (!::prefs.isInitialized) return emptyList()
         val myDevice = prefs.deviceId
         val byDeviceAsset = HashMap<String, RemoteAsset>()
         for (a in r.values) if (a.deviceId == myDevice && a.deviceAsset != null) byDeviceAsset[a.deviceAsset] = a
@@ -120,6 +123,8 @@ object Repo {
         runCatching { memories.value = api.memories() }
     }
 
+    suspend fun refreshProfile() { runCatching { api.profile() }.onSuccess { profile.value = it } }
+
     fun updateRemote(a: RemoteAsset) { remote.value = remote.value + (a.id to a) }
 
     fun logoutLocal() {
@@ -128,6 +133,7 @@ object Repo {
         remote.value = emptyMap()
         albums.value = emptyList()
         memories.value = emptyList()
+        profile.value = null
         loggedIn.value = false
         File(app.filesDir, "remote.json").delete()
         backupDb.clear()

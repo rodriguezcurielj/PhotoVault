@@ -84,6 +84,30 @@ class Api(private val prefs: Prefs) {
 
     suspend fun logout() { runCatching { call("POST", "/api/logout") } }
 
+    data class Profile(val username: String, val name: String, val email: String, val avatar: Long?, val mailReady: Boolean) {
+        val display get() = name.ifBlank { username }
+        val initials get() = display.trim().split(Regex("\\s+")).mapNotNull { it.firstOrNull()?.uppercaseChar() }.take(2).joinToString("").ifBlank { "?" }
+    }
+    private fun JSONObject.toProfile() = Profile(optString("username"), optString("name"), optString("email"),
+        if (isNull("avatar")) null else optLong("avatar"), optBoolean("mailReady"))
+    suspend fun profile(): Profile = JSONObject(call("GET", "/api/profile")).toProfile()
+    /** Only the fields given are changed. Changing an existing email needs the current password. */
+    suspend fun updateProfile(name: String? = null, email: String? = null, password: String? = null, avatar: Long? = null, clearAvatar: Boolean = false): Profile {
+        val body = JSONObject()
+        name?.let { body.put("name", it) }
+        email?.let { body.put("email", it) }
+        password?.let { body.put("password", it) }
+        if (clearAvatar) body.put("avatar", JSONObject.NULL) else avatar?.let { body.put("avatar", it) }
+        return JSONObject(call("PATCH", "/api/profile", body)).toProfile()
+    }
+    suspend fun verifyPassword(password: String) { call("POST", "/api/password/verify", JSONObject().put("password", password)) }
+    /** Emails a reset code; returns the (partly hidden) address it went to. */
+    suspend fun forgotPassword(username: String): String =
+        JSONObject(call("POST", "/api/forgot", JSONObject().put("username", username.trim()))).getString("sentTo")
+    /** Sets a new password with the emailed code; returns a new login token. */
+    suspend fun resetPassword(code: String, password: String): String =
+        JSONObject(call("POST", "/api/reset", JSONObject().put("code", code.trim()).put("password", password).put("device", android.os.Build.MODEL))).getString("token")
+
     data class Sync(val now: Long, val assets: List<RemoteAsset>, val deleted: List<Long>)
 
     suspend fun assets(since: Long): Sync {

@@ -3,7 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#111214">
+<meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <title>Gallery</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -18,52 +21,68 @@
 
 <section id="auth" class="hidden">
   <form id="authForm">
-    <div class="logo"><img src="icon.svg" alt="">Gallery</div>
+    <img class="authlogo" src="icon.svg" alt="">
+    <h1>Gallery</h1>
     <p id="authMsg">Sign in to your photos.</p>
-    <input id="user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Username" required>
-    <input id="pw" type="password" autocomplete="current-password" placeholder="Password" required>
-    <button class="primary" type="submit" id="authBtn">Log in</button>
+    <div class="fields">
+      <input id="user" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Username" required>
+      <input id="pw" type="password" autocomplete="current-password" placeholder="Password" required>
+    </div>
+    <button class="primary big" type="submit" id="authBtn">Sign In</button>
     <div class="error" id="authErr"></div>
+    <a class="link" id="forgotLink">Forgot password?</a>
   </form>
 </section>
 
 <div id="app" class="hidden">
-  <aside id="nav">
-    <div class="logo"><img src="icon.svg" alt="">Gallery</div>
-    <a data-view="photos" class="active"><span class="i">▦</span>Photos</a>
-    <a data-view="explore"><span class="i">⌕</span>Explore</a>
-    <a data-view="albums"><span class="i">❐</span>Albums</a>
-    <a data-view="favorites"><span class="i">♥</span>Favorites</a>
-    <a data-view="videos"><span class="i">▶</span>Videos</a>
-    <a data-view="map"><span class="i">⌖</span>Map</a>
-    <a data-view="import"><span class="i">⇪</span>Import</a>
-    <hr>
-    <a data-view="archive"><span class="i">⬓</span>Archive</a>
-    <a data-view="locked"><span class="i">🔒</span>Locked folder</a>
-    <a data-view="trash"><span class="i">🗑</span>Trash</a>
-    <div class="spacer"></div>
-    <div class="storage" id="storage"></div>
-    <a id="getAppBtn"><span class="i">⬇</span>Get the app</a>
-    <a id="logoutBtn"><span class="i">⎋</span>Log out</a>
-  </aside>
+  <header id="appbar">
+    <button class="icon only-mobile" id="navBtn" aria-label="Menu"><span data-icon="menu"></span></button>
+    <a class="brand" href="#photos"><img src="icon.svg" alt="">Gallery</a>
+    <form id="searchForm"><span data-icon="search"></span><input id="search" type="search" placeholder="Search"></form>
+    <div class="grow"></div>
+    <button class="icon" id="uploadBtn" title="Upload"><span data-icon="upload"></span></button>
+    <input type="file" id="fileInput" accept="image/*,video/*,.heic,.heif,.dng" multiple hidden>
+    <button class="avatar" id="avatarBtn" title="Profile"></button>
+  </header>
 
-  <div id="main">
-    <header id="top">
-      <button class="icon only-mobile" id="navBtn" aria-label="Menu">☰</button>
-      <form id="searchForm"><input id="search" type="search" placeholder="Search places, dates, cameras, “videos 2024”…"></form>
-      <button class="primary" id="uploadBtn">Upload</button>
-      <input type="file" id="fileInput" accept="image/*,video/*,.heic,.heif,.dng" multiple hidden>
-    </header>
+  <div id="body">
+    <aside id="nav">
+      <div class="navsec">Photos</div>
+      <a data-view="photos" class="active"><span class="i" data-icon="library"></span>Library</a>
+      <a data-view="explore"><span class="i" data-icon="compass"></span>Memories &amp; Places</a>
+      <a data-view="favorites"><span class="i" data-icon="heart"></span>Favorites</a>
+      <a data-view="videos"><span class="i" data-icon="video"></span>Videos</a>
+      <a data-view="map"><span class="i" data-icon="pin"></span>Map</a>
+      <div class="navsec">Albums <button class="mini" id="newAlbumBtn" title="New album"><span data-icon="plus"></span></button></div>
+      <a data-view="albums"><span class="i" data-icon="album"></span>All Albums</a>
+      <div id="navAlbums"></div>
+      <div class="navsec">Utilities</div>
+      <a data-view="import"><span class="i" data-icon="import"></span>Import</a>
+      <a data-view="links"><span class="i" data-icon="link"></span>Shared Links</a>
+      <a data-view="archive"><span class="i" data-icon="archive"></span>Archive</a>
+      <a data-view="locked"><span class="i" data-icon="hidden"></span>Hidden</a>
+      <a data-view="trash"><span class="i" data-icon="trash"></span>Recently Deleted</a>
+      <div class="spacer"></div>
+      <div class="storage" id="storage"></div>
+    </aside>
 
-    <div id="selbar" class="hidden">
-      <button class="icon" id="selClear" aria-label="Clear selection">✕</button>
-      <span id="selCount"></span>
-      <div class="grow"></div>
-      <span id="selActions"></span>
+    <div id="main">
+      <div id="selbar" class="hidden">
+        <button class="icon" id="selClear" aria-label="Clear selection"><span data-icon="close"></span></button>
+        <span id="selCount"></span>
+        <div class="grow"></div>
+        <span id="selActions"></span>
+      </div>
+      <div id="content"></div>
     </div>
-
-    <div id="content"></div>
   </div>
+</div>
+
+<div id="profileMenu" class="hidden">
+  <div class="pmhead"><div class="avatar big" id="pmAvatar"></div><div><div id="pmName"></div><div class="muted" id="pmEmail"></div></div></div>
+  <button id="profileBtn"><span data-icon="person"></span>Profile &amp; Settings</button>
+  <button id="getAppBtn"><span data-icon="device"></span>Get the App</button>
+  <button id="logoutBtn"><span data-icon="logout"></span>Sign Out</button>
 </div>
 
 <div id="drop" class="hidden">Drop photos and videos to upload</div>
@@ -72,14 +91,14 @@
 
 <div id="viewer" class="hidden">
   <div class="vtop">
-    <button class="icon" id="vClose" aria-label="Close">←</button>
+    <button class="icon" id="vClose" aria-label="Close"><span data-icon="back"></span></button>
     <div class="grow"></div>
-    <button class="icon" id="vFav" title="Favorite (F)">♡</button>
-    <button class="icon" id="vEdit" title="Edit (E)">✎</button>
-    <button class="icon" id="vInfo" title="Info (I)">ⓘ</button>
-    <button class="icon" id="vDownload" title="Download">⤓</button>
-    <button class="icon" id="vMore" title="More">⋮</button>
-    <button class="icon" id="vDelete" title="Delete (Del)">🗑</button>
+    <button class="icon" id="vFav" title="Favorite (F)"><span data-icon="heart"></span></button>
+    <button class="icon" id="vEdit" title="Edit (E)"><span data-icon="edit"></span></button>
+    <button class="icon" id="vInfo" title="Info (I)"><span data-icon="info"></span></button>
+    <button class="icon" id="vDownload" title="Download"><span data-icon="download"></span></button>
+    <button class="icon" id="vMore" title="More"><span data-icon="more"></span></button>
+    <button class="icon" id="vDelete" title="Delete (Del)"><span data-icon="trash"></span></button>
   </div>
   <div class="vbody">
     <div class="stage" id="stage"></div>

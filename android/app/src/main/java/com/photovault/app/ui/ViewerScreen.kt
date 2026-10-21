@@ -135,7 +135,7 @@ fun ViewerScreen(s: Screen.Viewer) {
     val locked = s.lockedPassword != null
 
     val scope = androidx.compose.runtime.rememberCoroutineScope()
-    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val dark = isDark()
     // Apple Photos: white around the photo with the bars showing, black when you tap them away.
     val bg by androidx.compose.animation.animateColorAsState(if (chrome && !dark) Color.White else Color.Black, label = "bg")
     val fg = if (chrome && !dark) Color.Black else Color.White
