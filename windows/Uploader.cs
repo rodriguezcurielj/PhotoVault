@@ -134,6 +134,8 @@ public sealed class Uploader
                 sent = 0;
                 if (e is ApiException { Status: 401 }) { FatalError = "You were signed out. Sign in again and run it again — finished files are skipped."; throw; }
                 var permanent = e is ApiException { Status: 400 or 413 or 415 } || e is FileNotFoundException or UnauthorizedAccessException;
+                // Server down or restarting: wait for it instead of using up this file's tries.
+                if (!permanent && await WaitForServer(ct)) { attempt--; continue; }
                 if (permanent || attempt >= 4)
                 {
                     Interlocked.Increment(ref Failed);
@@ -152,16 +154,43 @@ public sealed class Uploader
         while (Recent.Count > 8) Recent.TryDequeue(out _);
     }
 
-    static async Task<T> Retry<T>(Func<Task<T>> f, CancellationToken ct)
+    async Task<T> Retry<T>(Func<Task<T>> f, CancellationToken ct)
     {
         for (var attempt = 1; ; attempt++)
         {
             try { return await f(); }
-            catch (Exception e) when (attempt < 5 && e is not OperationCanceledException && e is not ApiException { Status: 401 })
+            catch (Exception e) when (attempt < 5 && !ct.IsCancellationRequested && e is not ApiException { Status: 401 })
             {
-                await Task.Delay(TimeSpan.FromSeconds(attempt * 3), ct);
+                if (await WaitForServer(ct)) attempt--;
+                else await Task.Delay(TimeSpan.FromSeconds(attempt * 3), ct);
             }
         }
+    }
+
+    // ---- riding out server outages (restart, Wi-Fi drop, PC asleep) ----
+    readonly SemaphoreSlim outageGate = new(1, 1);
+    DateTime recoveredAt = DateTime.MinValue;
+
+    /// <summary>
+    /// If the server isn't answering, waits (as long as it takes) until it is, and returns true.
+    /// Returns false right away when the server is fine, i.e. the error was about this one file.
+    /// </summary>
+    async Task<bool> WaitForServer(CancellationToken ct)
+    {
+        await outageGate.WaitAsync(ct); // one worker checks; the others wait here and reuse its answer
+        try
+        {
+            if (DateTime.UtcNow - recoveredAt < TimeSpan.FromSeconds(5)) return true; // an outage just ended while we waited
+            if (await api.Health(api.Server) == null) return false;
+            var before = Phase;
+            Phase = "Can't reach the server — waiting for it to come back…";
+            Note("… server not answering, will continue on its own");
+            while (await api.Health(api.Server) != null) await Task.Delay(TimeSpan.FromSeconds(10), ct);
+            recoveredAt = DateTime.UtcNow;
+            Phase = before.StartsWith("Can't reach") ? "Uploading…" : before;
+            return true;
+        }
+        finally { outageGate.Release(); }
     }
 
     static async Task<string?> Sha1(FileInfo f, CancellationToken ct)

@@ -16,6 +16,7 @@ public sealed class Settings
     public string? TokenProtected { get; set; }
     public int Parallel { get; set; } = 4;
 
+    [System.Text.Json.Serialization.JsonIgnore] // only the encrypted copy is written to disk
     public string? Token
     {
         get
