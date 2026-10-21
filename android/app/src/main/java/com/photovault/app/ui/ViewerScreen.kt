@@ -73,6 +73,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -99,6 +100,10 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
+import me.saket.telephoto.zoomable.ZoomSpec
+import me.saket.telephoto.zoomable.coil3.ZoomableAsyncImage
+import me.saket.telephoto.zoomable.rememberZoomableImageState
+import me.saket.telephoto.zoomable.rememberZoomableState
 import coil3.request.ImageRequest
 import com.photovault.app.data.LocalMedia
 import com.photovault.app.data.MediaItem
@@ -143,6 +148,15 @@ fun ViewerScreen(s: Screen.Viewer) {
     var dragY by remember { mutableFloatStateOf(0f) }
     val strip = androidx.compose.foundation.lazy.rememberLazyListState()
     LaunchedEffect(pager.currentPage) { strip.animateScrollToItem(maxOf(0, pager.currentPage - 4)) }
+    // Fetch the next few photos ahead of time so swiping through them doesn't wait on the internet.
+    val ctx = LocalContext.current
+    LaunchedEffect(pager.currentPage) {
+        val loader = coil3.SingletonImageLoader.get(ctx)
+        for (d in listOf(1, 2, 3, -1, -2)) {
+            val it = items.getOrNull(pager.currentPage + d) ?: continue
+            if (it.local == null && it.remote != null && !it.isVideo) loader.enqueue(ImageRequest.Builder(ctx).data(Repo.api.previewUrl(it.remote.id)).build())
+        }
+    }
     val barBg = if (dark) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.92f)
 
     Box(Modifier.fillMaxSize().background(bg.copy(alpha = 1f - (kotlin.math.abs(dragY) / 900f).coerceIn(0f, 0.7f)))
@@ -162,8 +176,7 @@ fun ViewerScreen(s: Screen.Viewer) {
             val item = items[page]
             if (item.isVideo) VideoPage(item, page == pager.currentPage) { chrome = !chrome }
             else ZoomableImage(item, onTap = { chrome = !chrome }, onZoom = { if (page == pager.currentPage) zoomed = it },
-                onLongPress = { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); app.run { app.actions.copy(item) } },
-                onPinchClose = { app.pop() })
+                onLongPress = { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); app.run { app.actions.copy(item) } })
         }
         AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
             Box(Modifier.fillMaxWidth().background(barBg).statusBarsPadding().padding(horizontal = 4.dp, vertical = 2.dp)) {
@@ -249,64 +262,24 @@ private fun ViewerButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
     IconButton(onClick = onClick) { Icon(icon, label, tint = Ios.blue, modifier = Modifier.size(26.dp)) }
 }
 
-/** Pinch / double-tap zoom. Only takes over the touch when zoomed or using two fingers, so swiping still changes photos. */
+/**
+ * Pinch / double-tap zoom. Only takes over the touch when zoomed, so swiping still changes photos.
+ * Shows a screen-sized image, and when zoomed in loads just the visible part at full resolution (like Photos),
+ * instead of stretching one huge bitmap, which some phones draw as black.
+ */
 @Composable
-fun ZoomableImage(item: MediaItem, onTap: () -> Unit, onZoom: (Boolean) -> Unit, onLongPress: () -> Unit = {}, onPinchClose: () -> Unit = {}) {
-    val ctx = LocalContext.current
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    var size by remember { mutableStateOf(IntSize.Zero) }
-    fun clamp(o: Offset, s: Float): Offset {
-        val mx = size.width * (s - 1) / 2f
-        val my = size.height * (s - 1) / 2f
-        return Offset(o.x.coerceIn(-mx, mx), o.y.coerceIn(-my, my))
-    }
-    val model = remember(item.key) {
-        val l = item.local
-        if (l != null) ImageRequest.Builder(ctx).data(l.uri).size(3072).build() else Repo.api.previewUrl(item.remote!!.id)
-    }
-    Box(
-        Modifier.fillMaxSize()
-            .onSizeChanged { size = it }
-            .pointerInput(item.key) {
-                detectTapGestures(onTap = { onTap() }, onLongPress = { if (scale <= 1f) onLongPress() }, onDoubleTap = { p ->
-                    if (scale > 1f) { scale = 1f; offset = Offset.Zero }
-                    else {
-                        scale = 2.5f
-                        val c = Offset(size.width / 2f, size.height / 2f)
-                        offset = clamp((c - p) * 1.5f, scale)
-                    }
-                    onZoom(scale > 1f)
-                })
-            }
-            .pointerInput(item.key) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    do {
-                        val ev = awaitPointerEvent()
-                        val fingers = ev.changes.count { it.pressed }
-                        if (fingers > 1 || scale > 1f) {
-                            val zoom = ev.calculateZoom()
-                            val pan = ev.calculatePan()
-                            val centroid = ev.calculateCentroid()
-                            // Below full size the photo shrinks as you pinch; let go small enough and it closes (like Photos).
-                            val newScale = (scale * zoom).coerceIn(if (fingers > 1) 0.5f else 1f, 8f)
-                            val d = centroid - Offset(size.width / 2f, size.height / 2f)
-                            offset = if (newScale <= 1f) Offset.Zero else clamp((offset - d) * (newScale / scale) + d + pan, newScale)
-                            scale = newScale
-                            onZoom(scale > 1f)
-                            ev.changes.forEach { if (it.positionChanged()) it.consume() }
-                        }
-                    } while (ev.changes.any { it.pressed })
-                    if (scale < 0.8f) onPinchClose()
-                    if (scale <= 1.01f) { scale = 1f; offset = Offset.Zero; onZoom(false) }
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        AsyncImage(model = model, contentDescription = null, contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale; translationX = offset.x; translationY = offset.y })
-    }
+fun ZoomableImage(item: MediaItem, onTap: () -> Unit, onZoom: (Boolean) -> Unit, onLongPress: () -> Unit = {}) {
+    val zoom = rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = 3f))
+    val state = rememberZoomableImageState(zoom)
+    LaunchedEffect(zoom) { snapshotFlow { (zoom.zoomFraction ?: 0f) > 0.01f }.collect { onZoom(it) } }
+    ZoomableAsyncImage(
+        model = item.local?.uri ?: Repo.api.previewUrl(item.remote!!.id),
+        contentDescription = null,
+        state = state,
+        modifier = Modifier.fillMaxSize(),
+        onClick = { onTap() },
+        onLongClick = { if ((zoom.zoomFraction ?: 0f) <= 0.01f) onLongPress() },
+    )
 }
 
 @OptIn(UnstableApi::class)

@@ -110,11 +110,42 @@ object Repo {
             prefs.lastSync = s.now
             online.value = true
             saveCache()
+            syncThumbnails()
         } catch (e: ApiException) {
             if (e.code == 401) logoutLocal()
             online.value = false
         } catch (e: Exception) {
             online.value = false
+        }
+    }
+
+    /**
+     * Keeps a copy of every server photo's thumbnail on the phone (about 20 KB each), newest first,
+     * so scrolling the library shows them instantly instead of waiting on the internet, like iCloud Photos.
+     */
+    private var thumbJob: Job? = null
+    private fun syncThumbnails() {
+        if (thumbJob?.isActive == true) return
+        thumbJob = scope.launch {
+            val loader = coil3.SingletonImageLoader.get(app)
+            val disk = loader.diskCache ?: return@launch
+            val ids = remote.value.values.filter { it.trashedAt == null }.sortedByDescending { it.takenAt }.map { it.id }
+            val queue = kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+            for (id in ids) {
+                val url = api.thumbUrl(id)
+                if (disk.openSnapshot(url)?.use { true } != true) queue.trySend(url)
+            }
+            queue.close()
+            List(6) {
+                launch {
+                    for (url in queue) {
+                        if (prefs.token == null) return@launch
+                        loader.execute(coil3.request.ImageRequest.Builder(app).data(url)
+                            .memoryCachePolicy(coil3.request.CachePolicy.DISABLED)
+                            .size(48).build())
+                    }
+                }
+            }
         }
     }
 

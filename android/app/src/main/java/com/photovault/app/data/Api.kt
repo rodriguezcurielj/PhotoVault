@@ -27,6 +27,9 @@ class Api(private val prefs: Prefs) {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.MINUTES)
         .writeTimeout(10, TimeUnit.MINUTES)
+        // OkHttp only fetches 5 things from one server at a time by default; a screen of thumbnails needs more.
+        .dispatcher(okhttp3.Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 24 })
+        .connectionPool(okhttp3.ConnectionPool(24, 5, TimeUnit.MINUTES))
         .addInterceptor { chain ->
             val req = chain.request()
             val token = prefs.token
