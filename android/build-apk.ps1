@@ -30,4 +30,7 @@ $gradle = Get-Content "$here\app\build.gradle" -Raw
 $code = [int]([regex]::Match($gradle, 'versionCode (\d+)').Groups[1].Value)
 $name = [regex]::Match($gradle, "versionName '([^']+)'").Groups[1].Value
 @{ versionCode = $code; versionName = $name } | ConvertTo-Json -Compress | Set-Content -Encoding ascii (Join-Path $public 'app-version.json')
+# Also put it on Pepe's Apps (the download page + store app) so phones see the update there.
+$pepes = Join-Path $env:USERPROFILE 'PepesApps\publish.ps1'
+if (Test-Path $pepes) { & powershell -ExecutionPolicy Bypass -File $pepes Gallery.apk }
 Write-Host "Saved $out ($([math]::Round((Get-Item $out).Length / 1MB, 1)) MB)."
