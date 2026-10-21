@@ -4,6 +4,8 @@ services:
     image: photovault
     container_name: photovault
     restart: unless-stopped
+    # Lets uploads already in progress finish when the server restarts.
+    stop_grace_period: 2m
     ports:
       - "8420:8420"
     environment:

@@ -73,13 +73,18 @@ async function videoMeta(file) {
   return meta;
 }
 
+// Thumbnail work is heavy; this keeps it from slowing down everything else the server is doing.
+sharp.concurrency(2);
+const runLow = (cmd, args, opts) => run('nice', ['-n', '15', cmd, ...args], opts);
+
 // Returns something sharp can decode for the thumbnail: the file itself, a decoded HEIC, or a video frame.
+// upright: the pixels are already turned the right way (don't apply the EXIF rotation again).
 async function decodable(file, type) {
   if (type === 'video') {
     for (const at of ['1', '0']) {
       try {
-        const png = await run('ffmpeg', ['-v', 'quiet', '-ss', at, '-i', file, '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-'], { encoding: 'buffer' });
-        if (png.length) return png;
+        const png = await runLow('ffmpeg', ['-v', 'quiet', '-ss', at, '-i', file, '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-'], { encoding: 'buffer' });
+        if (png.length) return { input: png, upright: true };
       } catch { /* try the first frame */ }
     }
     return null;
@@ -89,22 +94,25 @@ async function decodable(file, type) {
     // so the server keeps answering while it works; the JS decoder used before froze it ~1.5 s per photo.
     const out = path.join(UPLOAD_TMP, `heic-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
     try {
-      await run('heif-convert', ['-q', '92', file, out]);
-      // Its pixels are already upright but the EXIF still says "rotate"; re-encode without metadata so it isn't turned twice.
-      return await sharp(out).jpeg({ quality: 92 }).toBuffer();
+      await runLow('heif-convert', ['-q', '90', file, out]);
+      // Its pixels are already upright even though the EXIF it copies still says "rotate".
+      return { input: await fs.promises.readFile(out), upright: true };
     } finally { fs.rmSync(out, { force: true }); }
   }
-  return file;
+  return { input: file, upright: false };
 }
 
 async function makeRenditions(asset) {
   const src = await decodable(path.join(LIBRARY_DIR, asset.file), asset.type);
   if (!src) return;
-  const base = sharp(src, { failOn: 'none' }).rotate();
-  const info = await base.clone().resize({ width: 2048, height: 2048, fit: 'inside', withoutEnlargement: true })
-    .webp({ quality: 82 }).toFile(path.join(PREVIEW_DIR, `${asset.id}.webp`));
-  await base.clone().resize({ width: 480, height: 480, fit: 'inside', withoutEnlargement: true })
-    .webp({ quality: 74 }).toFile(path.join(THUMB_DIR, `${asset.id}.webp`));
+  // Decode once at preview size, then make both files from those pixels.
+  const img = sharp(src.input, { failOn: 'none' });
+  if (!src.upright) img.rotate();
+  const { data, info } = await img.resize({ width: 2048, height: 2048, fit: 'inside', withoutEnlargement: true })
+    .removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const pixels = () => sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } });
+  await pixels().webp({ quality: 82, effort: 2 }).toFile(path.join(PREVIEW_DIR, `${asset.id}.webp`));
+  await pixels().resize({ width: 480, height: 480, fit: 'inside' }).webp({ quality: 74 }).toFile(path.join(THUMB_DIR, `${asset.id}.webp`));
   if (!asset.width && info.width) {
     db.prepare('UPDATE assets SET width = ?, height = ? WHERE id = ?').run(info.width, info.height, asset.id);
   }

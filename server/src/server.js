@@ -623,4 +623,10 @@ emptyOldTrash();
 importer.scanFolder();
 fillRenditions();
 
-app.listen(cfg.PORT, () => console.log(`PhotoVault on http://localhost:${cfg.PORT} (data in ${cfg.DATA_DIR})`));
+const server = app.listen(cfg.PORT, () => console.log(`PhotoVault on http://localhost:${cfg.PORT} (data in ${cfg.DATA_DIR})`));
+// On restart (docker stop), stop taking new requests but let uploads that are already coming in finish.
+process.on('SIGTERM', () => {
+  console.log('Stopping: finishing uploads in progress');
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 100e3).unref();
+});
