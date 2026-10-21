@@ -205,6 +205,21 @@ class Actions(private val activity: ComponentActivity) {
         return null
     }
 
+    /** Copies the photo to the clipboard (server-only photos are downloaded first). */
+    suspend fun copy(item: MediaItem): String? {
+        val uri = item.local?.uri ?: withContext(Dispatchers.IO) {
+            val r = item.remote ?: return@withContext null
+            val dir = File(activity.cacheDir, "shared").apply { mkdirs() }
+            val f = File(dir, r.name)
+            api.client.newCall(Request.Builder().url(api.originalUrl(r.id)).build()).execute().use { res -> f.outputStream().use { res.body!!.byteStream().copyTo(it) } }
+            FileProvider.getUriForFile(activity, "${activity.packageName}.files", f)
+        } ?: return "Couldn't copy"
+        activity.getSystemService(android.content.ClipboardManager::class.java)
+            .setPrimaryClip(android.content.ClipData.newUri(resolver, item.remote?.name ?: "Photo", uri))
+        // Android 13+ shows its own "Copied" popup.
+        return if (android.os.Build.VERSION.SDK_INT >= 33) null else "Copied"
+    }
+
     /** Opens the Android share sheet. Server-only items are downloaded first. */
     suspend fun share(items: List<MediaItem>) {
         val uris = withContext(Dispatchers.IO) {

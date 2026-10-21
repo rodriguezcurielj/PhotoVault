@@ -9,6 +9,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -203,6 +204,7 @@ private fun LabeledTile(label: String, model: Any?, onClick: () -> Unit) {
 }
 
 // ---------------------------------------------------------------- Albums tab (iOS grouped style)
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun AlbumsTab() {
     val app = LocalApp.current
@@ -211,11 +213,18 @@ fun AlbumsTab() {
     val localTrash by Repo.localTrash.collectAsState()
     val local by Repo.local.collectAsState()
     var newAlbum by remember { mutableStateOf(false) }
+    var renameAlbum by remember { mutableStateOf<com.photovault.app.data.Album?>(null) }
+    var deleteAlbum by remember { mutableStateOf<com.photovault.app.data.Album?>(null) }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val seenRetap = remember { androidx.compose.runtime.mutableIntStateOf(app.retap) }
+    LaunchedEffect(app.retap) { if (app.retap != seenRetap.intValue) { seenRetap.intValue = app.retap; listState.animateScrollToItem(0) } }
     LaunchedEffect(Unit) { Repo.refreshExtras() }
     val live = remember(all) { all.filter { it.remote?.trashedAt == null || it.local != null } }
     val favorites = remember(live) { live.filter { it.favorite } }
     val recents = remember(live) { timelineOf(live) }
-    LazyColumn(Modifier.fillMaxSize().background(Ios.grouped), contentPadding = PaddingValues(bottom = 110.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(Ios.grouped), state = listState, contentPadding = PaddingValues(bottom = 110.dp)) {
         item {
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 8.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Albums", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
@@ -224,19 +233,39 @@ fun AlbumsTab() {
         }
         item { AppleSectionHeader("My Albums") }
         item {
-            data class Card(val title: String, val count: Int, val cover: Any?, val open: () -> Unit)
+            data class Card(val title: String, val count: Int, val cover: Any?, val album: com.photovault.app.data.Album? = null, val open: () -> Unit)
             val cards = listOf(
                 Card("Recents", recents.size, recents.firstOrNull()?.let { thumbModel(it) }) { app.tab = 0 },
                 Card("Favorites", favorites.size, favorites.firstOrNull()?.let { thumbModel(it) }) { app.push(Screen.Grid("Favorites", "favorites")) },
-            ) + albums.map { al -> Card(al.name, al.count, al.cover?.let { Repo.api.thumbUrl(it) }) { app.push(Screen.Album(al.id)) } }
+            ) + albums.map { al -> Card(al.name, al.count, al.cover?.let { Repo.api.thumbUrl(it) }, al) { app.push(Screen.Album(al.id)) } }
             val rows = if (cards.size > 2) 2 else 1
             LazyHorizontalGrid(GridCells.Fixed(rows), Modifier.height((235 * rows).dp),
                 contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(cards) { c ->
-                    Column(Modifier.width(170.dp).clickable(onClick = c.open)) {
-                        RoundThumb(c.cover, Modifier.size(170.dp), 8)
-                        Text(c.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 5.dp))
-                        Text("${c.count}", style = MaterialTheme.typography.bodyMedium, color = Ios.gray)
+                    // Touch and hold an album for Rename / Share Link / Delete, like iOS.
+                    var menu by remember { mutableStateOf(false) }
+                    Box {
+                        Column(Modifier.width(170.dp).combinedClickable(onClick = c.open, onLongClick = if (c.album == null) null else ({
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); menu = true }))) {
+                            RoundThumb(c.cover, Modifier.size(170.dp), 8)
+                            Text(c.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 5.dp))
+                            Text("${c.count}", style = MaterialTheme.typography.bodyMedium, color = Ios.gray)
+                        }
+                        val al = c.album
+                        if (al != null) androidx.compose.material3.DropdownMenu(menu, { menu = false }) {
+                            androidx.compose.material3.DropdownMenuItem({ Text("Rename") }, { menu = false; renameAlbum = al })
+                            androidx.compose.material3.DropdownMenuItem({ Text("Share Link") }, {
+                                menu = false
+                                app.run {
+                                    val token = al.shareToken ?: Repo.api.shareAlbum(al.id, true)!!
+                                    Repo.refreshExtras()
+                                    ctx.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+                                        .putExtra(android.content.Intent.EXTRA_TEXT, Repo.api.shareUrl(token)), "Share album link"))
+                                    null
+                                }
+                            })
+                            androidx.compose.material3.DropdownMenuItem({ Text("Delete Album", color = Ios.red) }, { menu = false; deleteAlbum = al })
+                        }
                     }
                 }
             }
@@ -286,6 +315,16 @@ fun AlbumsTab() {
                 Row3(Icons.Filled.CleaningServices, "Free Up Space", null) { app.push(Screen.FreeUp) },
                 Row3(Icons.Filled.CloudDownload, "Import from Google / Amazon Photos", null) { app.push(Screen.Import) },
             ))
+        }
+    }
+    renameAlbum?.let { al ->
+        TextPrompt("Rename Album", al.name, confirm = "Save", onDismiss = { renameAlbum = null }) { name ->
+            renameAlbum = null; app.run { Repo.api.renameAlbum(al.id, name); Repo.refreshExtras(); null }
+        }
+    }
+    deleteAlbum?.let { al ->
+        ConfirmDialog("Delete “${al.name}”?", "The photos stay in your library.", "Delete", { deleteAlbum = null }) {
+            app.run { Repo.api.deleteAlbum(al.id); Repo.refreshExtras(); "Album deleted" }
         }
     }
     if (newAlbum) TextPrompt("New Album", label = "Title", confirm = "Save", onDismiss = { newAlbum = false }) { name ->

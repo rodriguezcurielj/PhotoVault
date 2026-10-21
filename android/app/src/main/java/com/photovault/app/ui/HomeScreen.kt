@@ -93,7 +93,7 @@ fun HomeScreen() {
             2 -> AlbumsTab()
             else -> SearchTab()
         }
-        if (!app.selectingHome) AppleTabBar(app.tab, { app.tab = it }, Modifier.align(Alignment.BottomCenter))
+        if (!app.selectingHome) AppleTabBar(app.tab, { if (it == app.tab) app.retap++ else app.tab = it }, Modifier.align(Alignment.BottomCenter))
     }
 }
 
@@ -160,6 +160,10 @@ fun LibraryTab() {
     val display = remember(items) { items.asReversed() }
     val range by remember(display) { derivedStateOf { visibleRange(state, display) } }
     LaunchedEffect(selection.active) { app.selectingHome = selection.active }
+    val seenRetap = remember { androidx.compose.runtime.mutableIntStateOf(app.retap) }
+    LaunchedEffect(app.retap) {
+        if (app.retap != seenRetap.intValue) { seenRetap.intValue = app.retap; mode = 2; if (display.isNotEmpty()) state.animateScrollToItem(display.size - 1) }
+    }
 
     Box(Modifier.fillMaxSize()) {
         when (mode) {

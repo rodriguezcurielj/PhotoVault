@@ -46,6 +46,8 @@ class AppController(val actions: Actions, val snackbar: SnackbarHostState, val s
     var tab by androidx.compose.runtime.mutableIntStateOf(0)
     /** True while picking photos on the Library tab (the tab bar turns into the selection bar). */
     var selectingHome by androidx.compose.runtime.mutableStateOf(false)
+    /** Goes up each time the already-selected tab is tapped again (scroll back to the start, like iOS). */
+    var retap by androidx.compose.runtime.mutableIntStateOf(0)
     val top get() = stack.last()
     fun push(s: Screen) { stack.add(s) }
     fun pop() {

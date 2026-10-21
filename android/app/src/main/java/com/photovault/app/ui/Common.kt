@@ -56,6 +56,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.toSize
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
@@ -164,6 +167,10 @@ fun MediaGrid(
 ) {
     var columns by remember { mutableStateOf(Repo.prefs.columns) }
     val display = remember(items, newestAtBottom) { if (newestAtBottom) items.asReversed() else items }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val touchScope = rememberCoroutineScope()
+    var peek by remember { mutableStateOf<Int?>(null) }
+    val hits = remember { TileHits() }
     LaunchedEffect(display.isNotEmpty()) {
         if (display.isNotEmpty() && newestAtBottom && state !in positioned) {
             positioned += state
@@ -193,21 +200,32 @@ fun MediaGrid(
                                 if (zoom > 1.3f && columns > 1) {
                                     columns = when { columns > 5 -> 5; columns > 3 -> 3; else -> 1 }
                                     zoom = 1f; Repo.prefs.columns = columns
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 } else if (zoom < 0.75f && columns < 9) {
                                     columns = when { columns < 3 -> 3; columns < 5 -> 5; else -> 9 }
                                     zoom = 1f; Repo.prefs.columns = columns
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
                                 }
                                 ev.changes.forEach { it.consume() }
                             }
                         } while (ev.changes.any { it.pressed })
                     }
-                },
+                }
+                // Hold to peek, hold + drag or swipe (while selecting) to select many.
+                .onGloballyPositioned { hits.gridOrigin = it.positionInRoot() }
+                .gridTouch(state, hits, { display.map { it.key } }, selection, touchScope, haptic,
+                    topEdge = contentPadding.calculateTopPadding() + 40.dp, bottomEdge = contentPadding.calculateBottomPadding() + 40.dp) { peek = it },
         ) {
             items(display.size, key = { display[it].key }, contentType = { "cell" }) { i ->
                 val item = display[i]
                 Tile(item, item.key in selection.keys, selection.active, fit = columns == 1,
-                    onClick = { if (selection.active) selection.toggle(item.key) else onOpen(display, i) },
-                    onLongClick = { selection.toggle(item.key) })
+                    modifier = Modifier.onGloballyPositioned { hits.place(i, it.positionInRoot(), it.size.toSize()) },
+                    onClick = { if (selection.active) selection.toggle(item.key) else onOpen(display, i) })
+            }
+        }
+        peek?.let { i ->
+            display.getOrNull(i)?.let { item ->
+                PhotoPeek(item, onOpen = { onOpen(display, i) }, onSelect = { selection.toggle(item.key) }, onDismiss = { peek = null })
             }
         }
         if (display.size > 60) FastScroller(state, display.size, { idx -> monthLabel(display[idx.coerceIn(0, display.size - 1)].date) },
@@ -217,9 +235,9 @@ fun MediaGrid(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun Tile(item: MediaItem, selected: Boolean, selecting: Boolean, fit: Boolean = false, onClick: () -> Unit, onLongClick: () -> Unit) {
-    Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceVariant)
-        .combinedClickable(onClick = onClick, onLongClick = onLongClick)) {
+fun Tile(item: MediaItem, selected: Boolean, selecting: Boolean, fit: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceVariant)
+        .combinedClickable(onClick = onClick)) {
         AsyncImage(model = thumbModel(item), contentDescription = null, contentScale = if (fit) ContentScale.Fit else ContentScale.Crop,
             modifier = Modifier.fillMaxSize())
         if (selected) Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.28f)))

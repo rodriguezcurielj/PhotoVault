@@ -135,6 +135,7 @@ fun ViewerScreen(s: Screen.Viewer) {
     val locked = s.lockedPassword != null
 
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val dark = isDark()
     // Apple Photos: white around the photo with the bars showing, black when you tap them away.
     val bg by androidx.compose.animation.animateColorAsState(if (chrome && !dark) Color.White else Color.Black, label = "bg")
@@ -160,7 +161,9 @@ fun ViewerScreen(s: Screen.Viewer) {
             }) { page ->
             val item = items[page]
             if (item.isVideo) VideoPage(item, page == pager.currentPage) { chrome = !chrome }
-            else ZoomableImage(item, onTap = { chrome = !chrome }, onZoom = { if (page == pager.currentPage) zoomed = it })
+            else ZoomableImage(item, onTap = { chrome = !chrome }, onZoom = { if (page == pager.currentPage) zoomed = it },
+                onLongPress = { haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress); app.run { app.actions.copy(item) } },
+                onPinchClose = { app.pop() })
         }
         AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
             Box(Modifier.fillMaxWidth().background(barBg).statusBarsPadding().padding(horizontal = 4.dp, vertical = 2.dp)) {
@@ -248,7 +251,7 @@ private fun ViewerButton(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 /** Pinch / double-tap zoom. Only takes over the touch when zoomed or using two fingers, so swiping still changes photos. */
 @Composable
-fun ZoomableImage(item: MediaItem, onTap: () -> Unit, onZoom: (Boolean) -> Unit) {
+fun ZoomableImage(item: MediaItem, onTap: () -> Unit, onZoom: (Boolean) -> Unit, onLongPress: () -> Unit = {}, onPinchClose: () -> Unit = {}) {
     val ctx = LocalContext.current
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
@@ -266,7 +269,7 @@ fun ZoomableImage(item: MediaItem, onTap: () -> Unit, onZoom: (Boolean) -> Unit)
         Modifier.fillMaxSize()
             .onSizeChanged { size = it }
             .pointerInput(item.key) {
-                detectTapGestures(onTap = { onTap() }, onDoubleTap = { p ->
+                detectTapGestures(onTap = { onTap() }, onLongPress = { if (scale <= 1f) onLongPress() }, onDoubleTap = { p ->
                     if (scale > 1f) { scale = 1f; offset = Offset.Zero }
                     else {
                         scale = 2.5f
@@ -286,15 +289,17 @@ fun ZoomableImage(item: MediaItem, onTap: () -> Unit, onZoom: (Boolean) -> Unit)
                             val zoom = ev.calculateZoom()
                             val pan = ev.calculatePan()
                             val centroid = ev.calculateCentroid()
-                            val newScale = (scale * zoom).coerceIn(1f, 8f)
+                            // Below full size the photo shrinks as you pinch; let go small enough and it closes (like Photos).
+                            val newScale = (scale * zoom).coerceIn(if (fingers > 1) 0.5f else 1f, 8f)
                             val d = centroid - Offset(size.width / 2f, size.height / 2f)
-                            offset = clamp((offset - d) * (newScale / scale) + d + pan, newScale)
+                            offset = if (newScale <= 1f) Offset.Zero else clamp((offset - d) * (newScale / scale) + d + pan, newScale)
                             scale = newScale
-                            if (scale <= 1.01f) { scale = 1f; offset = Offset.Zero }
                             onZoom(scale > 1f)
                             ev.changes.forEach { if (it.positionChanged()) it.consume() }
                         }
                     } while (ev.changes.any { it.pressed })
+                    if (scale < 0.8f) onPinchClose()
+                    if (scale <= 1.01f) { scale = 1f; offset = Offset.Zero; onZoom(false) }
                 }
             },
         contentAlignment = Alignment.Center,
