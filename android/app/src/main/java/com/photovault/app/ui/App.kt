@@ -74,6 +74,23 @@ class AppController(val actions: Actions, val snackbar: SnackbarHostState, val s
 
 val LocalApp = staticCompositionLocalOf<AppController> { error("no app") }
 
+/** Asks to update when the server has a newer app than this one (checked each time the app opens). */
+@Composable
+private fun UpdatePrompt() {
+    val app = LocalApp.current
+    var newer by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        newer = (Repo.api.serverAppVersion() ?: 0) > com.photovault.app.BuildConfig.VERSION_CODE
+    }
+    if (newer) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { newer = false },
+        title = { androidx.compose.material3.Text("Update Available") },
+        text = { androidx.compose.material3.Text("A new version of Gallery is ready. It takes a few seconds and keeps your settings.") },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = { newer = false; app.run { app.actions.updateApp() } }) { androidx.compose.material3.Text("Update") } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { newer = false }) { androidx.compose.material3.Text("Later") } },
+    )
+}
+
 @Composable
 fun App(actions: Actions, initial: Screen? = null, onExit: (() -> Unit)? = null) {
     val snackbar = remember { SnackbarHostState() }
@@ -107,6 +124,7 @@ fun App(actions: Actions, initial: Screen? = null, onExit: (() -> Unit)? = null)
             if (loggedIn) {
                 androidx.compose.runtime.LaunchedEffect(Unit) { Repo.refreshProfile() }
                 RequireEmailDialog()
+                if (initial == null) UpdatePrompt()
             }
             SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
         }

@@ -32,6 +32,7 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
         if (prefs.token == null) return Result.success()
         val shareUris = inputData.getStringArray("uris")
         if (shareUris != null) return uploadShared(shareUris.map(Uri::parse))
+        notifyIfUpdate()
         if (!prefs.backupEnabled) return Result.success()
 
         Repo.syncRemote()
@@ -134,6 +135,23 @@ class BackupWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx
             .setSilent(true)
             .build()
         return ForegroundInfo(42, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+    }
+
+    /** One notification per new app version on the server; tapping it opens Gallery, which offers the update. */
+    private suspend fun notifyIfUpdate() {
+        val latest = Repo.api.serverAppVersion() ?: return
+        if (latest <= com.photovault.app.BuildConfig.VERSION_CODE || latest <= Repo.prefs.notifiedVersion) return
+        Repo.prefs.notifiedVersion = latest
+        val nm = applicationContext.getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel("updates", "App updates", NotificationManager.IMPORTANCE_DEFAULT))
+        val open = android.app.PendingIntent.getActivity(applicationContext, 0,
+            android.content.Intent(applicationContext, com.photovault.app.MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            android.app.PendingIntent.FLAG_IMMUTABLE)
+        nm.notify(44, NotificationCompat.Builder(applicationContext, "updates")
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle("Gallery update available")
+            .setContentText("Tap to install the new version")
+            .setContentIntent(open).setAutoCancel(true).build())
     }
 
     private fun notifyDone(text: String) {

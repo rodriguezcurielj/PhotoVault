@@ -48,6 +48,10 @@ class Prefs(context: Context) {
     var accent: Long
         get() = p.getLong("accent", 0xFF007AFF)
         set(v) = p.edit().putLong("accent", v).apply()
+    /** Last app versionCode we sent an "update available" notification for. */
+    var notifiedVersion: Int
+        get() = p.getInt("notifiedVersion", 0)
+        set(v) = p.edit().putInt("notifiedVersion", v).apply()
     var askedDefault: Boolean
         get() = p.getBoolean("askedDefault", false)
         set(v) = p.edit().putBoolean("askedDefault", v).apply()
