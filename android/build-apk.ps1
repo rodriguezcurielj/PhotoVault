@@ -14,6 +14,19 @@ if (-not (Test-Path "$here\keystore.properties")) {
     Write-Host 'Created a release key (android\photovault-release.jks + keystore.properties). Back them up.'
 }
 
+# The built-in Tailscale link (tsproxy, Go) for phones (arm64). Needs Go: winget install GoLang.Go, or ~\tools\go.
+$go = (Get-Command go -ErrorAction SilentlyContinue).Source
+if (-not $go) { $go = "$env:USERPROFILE\tools\go\bin\go.exe" }
+$libs = "$here\app\src\main\jniLibs"
+Remove-Item "$libs\x86_64" -Recurse -Force -ErrorAction SilentlyContinue   # emulator-only test build
+New-Item -ItemType Directory -Force "$libs\arm64-v8a" | Out-Null
+Push-Location "$here\tsproxy"
+try {
+    $env:GOOS = 'android'; $env:GOARCH = 'arm64'; $env:CGO_ENABLED = '0'
+    & $go build -trimpath -ldflags='-s -w' -o "$libs\arm64-v8a\libtsproxy.so" .
+    if ($LASTEXITCODE -ne 0) { throw 'Building tsproxy failed.' }
+} finally { Remove-Item Env:GOOS, Env:GOARCH, Env:CGO_ENABLED -ErrorAction SilentlyContinue; Pop-Location }
+
 Push-Location $here
 try {
     & .\gradlew.bat assembleRelease --console=plain

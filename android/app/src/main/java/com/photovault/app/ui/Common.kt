@@ -225,7 +225,7 @@ fun MediaGrid(
             items(display.size, key = { display[it].key }, contentType = { "cell" }) { i ->
                 val item = display[i]
                 Tile(item, item.key in selection.keys, selection.active, fit = columns == 1, pressed = held == i, ready = held == i && heldReady,
-                    modifier = Modifier.onGloballyPositioned { hits.place(i, it.positionInRoot(), it.size.toSize()) },
+                    modifier = Modifier.onGloballyPositioned { hits.place(item.key, it.positionInRoot(), it.size.toSize()) },
                     onClick = { if (selection.active) selection.toggle(item.key) else onOpen(display, i) })
             }
         }

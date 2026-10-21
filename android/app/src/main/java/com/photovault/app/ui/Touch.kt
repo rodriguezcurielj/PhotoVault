@@ -68,13 +68,16 @@ import kotlin.math.abs
  * (The grid's own item offsets don't include the space kept for the title bar, which put the pick one row off.)
  */
 class TileHits {
-    private val bounds = HashMap<Int, androidx.compose.ui.geometry.Rect>()
+    // By photo, not by position in the list: while photos are being added (uploads, sync) positions shift,
+    // and position-based bounds pointed at the wrong photo, often several rows away.
+    private val bounds = HashMap<Any, androidx.compose.ui.geometry.Rect>()
     var gridOrigin = Offset.Zero
-    fun place(index: Int, rootPos: Offset, size: androidx.compose.ui.geometry.Size) {
-        bounds[index] = androidx.compose.ui.geometry.Rect(rootPos - gridOrigin, size)
+    fun place(key: Any, rootPos: Offset, size: androidx.compose.ui.geometry.Size) {
+        bounds[key] = androidx.compose.ui.geometry.Rect(rootPos - gridOrigin, size)
     }
-    fun indexAt(state: LazyGridState, p: Offset): Int? =
-        state.layoutInfo.visibleItemsInfo.firstOrNull { bounds[it.index]?.contains(p) == true }?.index
+    /** The photo under [p] (its key), among the ones on screen. */
+    fun keyAt(state: LazyGridState, p: Offset): String? =
+        state.layoutInfo.visibleItemsInfo.firstOrNull { bounds[it.key]?.contains(p) == true }?.key as? String
 }
 
 /**
@@ -90,7 +93,8 @@ fun Modifier.gridTouch(state: LazyGridState, hits: TileHits, keys: () -> List<St
         val slop = viewConfiguration.touchSlop
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            val start = hits.indexAt(state, down.position) ?: return@awaitEachGesture
+            val startKey = hits.keyAt(state, down.position) ?: return@awaitEachGesture
+            val start = keys().indexOf(startKey).takeIf { it >= 0 } ?: return@awaitEachGesture
             var sideways = false
             // The photo starts shrinking right away so you can see the hold building up...
             if (!selection.active) onHold(start, false)
@@ -118,7 +122,7 @@ fun Modifier.gridTouch(state: LazyGridState, hits: TileHits, keys: () -> List<St
                         val ev = awaitPointerEvent(PointerEventPass.Initial)
                         val ch = ev.changes.firstOrNull { it.id == down.id }
                         if (ch == null) { onHold(null, false); return@awaitEachGesture }
-                        if (!ch.pressed) { ch.consume(); onHold(null, false); onPeek(start); return@awaitEachGesture }
+                        if (!ch.pressed) { ch.consume(); onHold(null, false); keys().indexOf(startKey).takeIf { it >= 0 }?.let(onPeek); return@awaitEachGesture }
                         ch.consume()
                         val d = ch.position - down.position
                         if (abs(d.x) > slop || abs(d.y) > slop) break
@@ -127,18 +131,19 @@ fun Modifier.gridTouch(state: LazyGridState, hits: TileHits, keys: () -> List<St
                 }
             }
 
-            // Drag-select from `start` to wherever the finger is.
-            val ks = keys()
-            if (start !in ks.indices) return@awaitEachGesture
+            // Drag-select from the first photo to wherever the finger is (looked up fresh each time,
+            // so photos added mid-drag don't throw the range off).
             val base = selection.keys
-            val adding = ks[start] !in base
-            var last = start
-            fun selectTo(to: Int) {
-                val run = (minOf(start, to)..maxOf(start, to)).mapNotNull { ks.getOrNull(it) }.toSet()
-                selection.keys = if (adding) base + run else base - run
+            val adding = startKey !in base
+            var last = startKey
+            fun selectTo(toKey: String) {
+                val ks = keys()
+                val a = ks.indexOf(startKey); val b = ks.indexOf(toKey)
+                if (a < 0 || b < 0) return
+                selection.keys = if (adding) base + ks.subList(minOf(a, b), maxOf(a, b) + 1) else base - ks.subList(minOf(a, b), maxOf(a, b) + 1).toSet()
                 selection.mode = true
             }
-            selectTo(start)
+            selectTo(startKey)
             var pos = down.position
             var speed = 0f
             var auto: Job? = null
@@ -149,12 +154,12 @@ fun Modifier.gridTouch(state: LazyGridState, hits: TileHits, keys: () -> List<St
                 ch.consume()
                 if (!ch.pressed) break
                 pos = ch.position
-                hits.indexAt(state, pos)?.let { if (it != last) { last = it; selectTo(it); haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } }
+                hits.keyAt(state, pos)?.let { if (it != last) { last = it; selectTo(it); haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } }
                 speed = when { pos.y < top -> -(top - pos.y).coerceAtMost(200f) / 6f; pos.y > bottom -> (pos.y - bottom).coerceAtMost(200f) / 6f; else -> 0f }
                 if (speed != 0f && auto?.isActive != true) auto = scope.launch {
                     while (speed != 0f) {
                         state.scrollBy(speed)
-                        hits.indexAt(state, pos)?.let { if (it != last) { last = it; selectTo(it) } }
+                        hits.keyAt(state, pos)?.let { if (it != last) { last = it; selectTo(it) } }
                         delay(16)
                     }
                 }

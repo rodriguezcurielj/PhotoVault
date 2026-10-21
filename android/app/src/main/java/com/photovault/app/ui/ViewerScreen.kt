@@ -95,7 +95,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.exifinterface.media.ExifInterface
 import androidx.media3.common.MediaItem as ExoItem
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
@@ -293,7 +292,8 @@ fun VideoPage(item: MediaItem, active: Boolean, onTap: () -> Unit) {
         return
     }
     val player = remember(item.key) {
-        val http = DefaultHttpDataSource.Factory().setDefaultRequestProperties(mapOf("Authorization" to "Bearer ${Repo.prefs.token}"))
+        // Same connection as the rest of the app (login token, direct Tailscale link when available).
+        val http = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(Repo.api.client)
         val ds = androidx.media3.datasource.DefaultDataSource.Factory(ctx, http)
         ExoPlayer.Builder(ctx).setMediaSourceFactory(DefaultMediaSourceFactory(ds)).build().apply {
             val uri = item.local?.uri?.toString() ?: Repo.api.originalUrl(item.remote!!.id)

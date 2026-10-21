@@ -16,6 +16,10 @@ services:
       - SMTP_PASS=${SMTP_PASS:-}
       - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
       - SMTP_PORT=${SMTP_PORT:-465}
+      # Built-in Tailscale link for the apps (values in .env on the server, never in git).
+      - TS_OAUTH_CLIENT_ID=${TS_OAUTH_CLIENT_ID:-}
+      - TS_OAUTH_CLIENT_SECRET=${TS_OAUTH_CLIENT_SECRET:-}
+      - TAILNET_TARGET=${TAILNET_TARGET:-}
     volumes:
       # Photos, thumbnails and previews. On budget-pc this is the 2 TB D: drive (set in .env).
       - ${PHOTOVAULT_DATA:-./data}:/data

@@ -330,6 +330,39 @@ app.post('/api/import/zip', requireAuth, zipUpload.single('file'), (req, res) =>
 });
 app.get('/api/import/status', requireAuth, (req, res) => res.json(importer.status));
 
+// ----- built-in Tailscale link for the apps -----
+// A signed-in app asks to join the owner's tailnet. With a Tailscale OAuth client in .env, the server mints a
+// one-time, pre-approved key tagged tag:gallery (the tailnet policy lets that tag reach only this server).
+// TS_OAUTH_CLIENT_ID / TS_OAUTH_CLIENT_SECRET / TAILNET_TARGET (e.g. 100.81.79.50:9443) live in .env, never in git.
+const joins = [];
+app.post('/api/tailnet/join', requireAuth, async (req, res) => {
+  const { TS_OAUTH_CLIENT_ID: id, TS_OAUTH_CLIENT_SECRET: secret, TAILNET_TARGET: target } = process.env;
+  if (!id || !secret || !target) return res.json({ target: '' });
+  while (joins.length && joins[0] < Date.now() - 3600e3) joins.shift();
+  if (joins.length >= 20) return res.status(429).json({ error: 'Too many new devices this hour' });
+  joins.push(Date.now());
+  try {
+    const tok = await fetch('https://api.tailscale.com/api/v2/oauth/token', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: id, client_secret: secret }),
+    }).then(r => r.json());
+    if (!tok.access_token) throw new Error(tok.message || 'Tailscale sign-in failed');
+    const key = await fetch('https://api.tailscale.com/api/v2/tailnet/-/keys', {
+      method: 'POST', headers: { Authorization: `Bearer ${tok.access_token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        description: `Gallery ${String(req.body.device || 'app').replace(/[^\w -]/g, '').slice(0, 40)}`,
+        expirySeconds: 600,
+        capabilities: { devices: { create: { reusable: false, ephemeral: false, preauthorized: true, tags: ['tag:gallery'] } } },
+      }),
+    }).then(r => r.json());
+    if (!key.key) throw new Error(key.message || 'Could not create a Tailscale key');
+    res.json({ key: key.key, target });
+  } catch (e) {
+    console.warn('tailnet join:', e.message);
+    res.json({ target: '' });
+  }
+});
+
 // ----- files -----
 // Making thumbnails is CPU-heavy (HEIC ~3 s each), so a few run at once. Ones someone is waiting to see
 // go to the front of the line; the background fill-in waits at the back.

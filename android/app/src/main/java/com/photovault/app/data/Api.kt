@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -30,6 +31,19 @@ class Api(private val prefs: Prefs) {
         // OkHttp only fetches 5 things from one server at a time by default; a screen of thumbnails needs more.
         .dispatcher(okhttp3.Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 24 })
         .connectionPool(okhttp3.ConnectionPool(24, 5, TimeUnit.MINUTES))
+        // Direct route through the built-in Tailscale connection when it's up (see Tailnet), else Funnel.
+        .dns(Tailnet.dns { prefs.server.toHttpUrlOrNull()?.host ?: "" })
+        .socketFactory(Tailnet.sockets { prefs.server.toHttpUrlOrNull()?.port ?: 443 })
+        .addInterceptor { chain ->
+            val direct = Tailnet.usable && chain.request().url.host == prefs.server.toHttpUrlOrNull()?.host
+            try { chain.proceed(chain.request()) }
+            catch (e: IOException) {
+                // The direct route broke (network change, server restart): retry once the normal way.
+                if (!direct || chain.call().isCanceled()) throw e
+                Tailnet.markBad()
+                chain.proceed(chain.request())
+            }
+        }
         .addInterceptor { chain ->
             val req = chain.request()
             val token = prefs.token
@@ -93,6 +107,14 @@ class Api(private val prefs: Prefs) {
     }
     private fun JSONObject.toProfile() = Profile(optString("username"), optString("name"), optString("email"),
         if (isNull("avatar")) null else optLong("avatar"), optBoolean("mailReady"))
+    /** How to join this phone to the owner's tailnet: a one-time key (null if Tailscale isn't set up) and the server's tailnet address. */
+    data class TailnetJoin(val key: String?, val target: String)
+    suspend fun tailnetJoin(): TailnetJoin? {
+        val o = JSONObject(call("POST", "/api/tailnet/join", JSONObject().put("device", android.os.Build.MODEL)))
+        val target = o.optString("target").takeIf { it.isNotBlank() } ?: return null
+        return TailnetJoin(o.optString("key").takeIf { it.isNotBlank() }, target)
+    }
+
     suspend fun profile(): Profile = JSONObject(call("GET", "/api/profile")).toProfile()
     /** Only the fields given are changed. Changing an existing email needs the current password. */
     suspend fun updateProfile(name: String? = null, email: String? = null, password: String? = null, avatar: Long? = null, clearAvatar: Boolean = false): Profile {

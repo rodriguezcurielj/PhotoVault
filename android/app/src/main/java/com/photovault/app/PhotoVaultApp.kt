@@ -24,6 +24,7 @@ class PhotoVaultApp : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         Repo.init(this)
+        com.photovault.app.data.Tailnet.start(this)
         BackupWorker.schedule(this)
     }
 

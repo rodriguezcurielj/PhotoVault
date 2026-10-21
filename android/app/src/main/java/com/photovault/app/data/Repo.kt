@@ -159,6 +159,7 @@ object Repo {
     fun updateRemote(a: RemoteAsset) { remote.value = remote.value + (a.id to a) }
 
     fun logoutLocal() {
+        Tailnet.stop(app)
         prefs.token = null
         prefs.lastSync = 0
         remote.value = emptyMap()

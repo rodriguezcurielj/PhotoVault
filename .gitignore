@@ -9,3 +9,4 @@ android/keystore.properties
 android/*.jks
 PhotoVault.apk
 server/public/PhotoVault.apk
+android/app/src/main/jniLibs/

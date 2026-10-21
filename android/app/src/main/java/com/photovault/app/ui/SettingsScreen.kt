@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Folder
@@ -195,6 +196,7 @@ fun LoginScreen() {
         Repo.prefs.lastSync = 0
         Repo.loggedIn.value = true
         BackupWorker.schedule(Repo.app)
+        com.photovault.app.data.Tailnet.start(Repo.app)
     }
     Column(Modifier.fillMaxSize().background(Ios.grouped).statusBarsPadding().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
@@ -495,6 +497,14 @@ fun SettingsScreen() {
 
             GroupCard("Account") {
                 Cell("Server", icon = Icons.Filled.Dns, iconColor = Color(0xFF8E8E93), value = p.server.removePrefix("https://").substringBefore('.'), chevron = false)
+                val route by com.photovault.app.data.Tailnet.state.collectAsState()
+                Cell("Connection", when (route) {
+                    com.photovault.app.data.Tailnet.State.Direct -> "Private Tailscale link, straight to your server"
+                    com.photovault.app.data.Tailnet.State.Starting -> "Setting up the direct link…"
+                    com.photovault.app.data.Tailnet.State.Relayed -> "This network blocks a direct link, so using Funnel"
+                    else -> "Through Tailscale Funnel (slower)"
+                }, Icons.Filled.Bolt, Color(0xFF34C759),
+                    value = if (route == com.photovault.app.data.Tailnet.State.Direct) "Direct" else "Internet", chevron = false)
                 Cell("Sign Out", icon = Icons.AutoMirrored.Filled.Logout, iconColor = Color(0xFFFF3B30), titleColor = Ios.red, divider = false, chevron = false, onClick = { confirmLogout = true })
             }
             Text("Gallery ${BuildConfig.VERSION_NAME}", fontSize = 13.sp, color = Ios.gray, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 20.dp))
