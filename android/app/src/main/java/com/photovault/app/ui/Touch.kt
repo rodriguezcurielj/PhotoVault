@@ -85,15 +85,18 @@ class TileHits {
  * - dragging near the top or bottom edge scrolls the grid
  */
 fun Modifier.gridTouch(state: LazyGridState, hits: TileHits, keys: () -> List<String>, selection: Selection, scope: CoroutineScope,
-                       haptic: HapticFeedback, topEdge: Dp, bottomEdge: Dp, onPeek: (Int) -> Unit): Modifier =
+                       haptic: HapticFeedback, topEdge: Dp, bottomEdge: Dp, onHold: (Int?, Boolean) -> Unit, onPeek: (Int) -> Unit): Modifier =
     pointerInput(state, selection) {
         val slop = viewConfiguration.touchSlop
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
             val start = hits.indexAt(state, down.position) ?: return@awaitEachGesture
             var sideways = false
+            // The photo starts shrinking right away so you can see the hold building up...
+            if (!selection.active) onHold(start, false)
             // Tap, scroll, or hold? (null = held without moving)
-            val ended = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+            // A short hold (shorter than Android's usual long press) is enough.
+            val ended = withTimeoutOrNull(HOLD_MS) {
                 while (true) {
                     val ev = awaitPointerEvent(PointerEventPass.Initial)
                     val ch = ev.changes.firstOrNull { it.id == down.id }
@@ -103,19 +106,24 @@ fun Modifier.gridTouch(state: LazyGridState, hits: TileHits, keys: () -> List<St
                 }
                 @Suppress("UNREACHABLE_CODE") true
             }
+            if (ended != null) onHold(null, false)
             if (ended != null && !sideways) return@awaitEachGesture
 
             if (ended == null) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 if (!selection.active) {
-                    // Held: let go to peek, or move to start selecting.
+                    // ...and once it's held it gets a ring and a buzz: let go for the menu, or drag to select.
+                    onHold(start, true)
                     while (true) {
                         val ev = awaitPointerEvent(PointerEventPass.Initial)
-                        val ch = ev.changes.firstOrNull { it.id == down.id } ?: return@awaitEachGesture
-                        if (!ch.pressed) { ch.consume(); onPeek(start); return@awaitEachGesture }
+                        val ch = ev.changes.firstOrNull { it.id == down.id }
+                        if (ch == null) { onHold(null, false); return@awaitEachGesture }
+                        if (!ch.pressed) { ch.consume(); onHold(null, false); onPeek(start); return@awaitEachGesture }
+                        ch.consume()
                         val d = ch.position - down.position
                         if (abs(d.x) > slop || abs(d.y) > slop) break
                     }
+                    onHold(null, false)
                 }
             }
 
@@ -155,6 +163,8 @@ fun Modifier.gridTouch(state: LazyGridState, hits: TileHits, keys: () -> List<St
             auto?.cancel()
         }
     }
+
+private const val HOLD_MS = 280L
 
 /** Touch-and-hold preview of a photo with quick actions, like the iPhone's context menu. */
 @Composable

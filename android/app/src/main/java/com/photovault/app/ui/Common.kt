@@ -56,6 +56,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -171,6 +172,10 @@ fun MediaGrid(
     val touchScope = rememberCoroutineScope()
     var peek by remember { mutableStateOf<Int?>(null) }
     val hits = remember { TileHits() }
+    var held by remember { mutableStateOf<Int?>(null) }
+    var heldReady by remember { mutableStateOf(false) }
+    // Back (button or swipe) leaves Select mode first, like iOS's Cancel.
+    androidx.activity.compose.BackHandler(enabled = selection.active) { selection.clear() }
     LaunchedEffect(display.isNotEmpty()) {
         if (display.isNotEmpty() && newestAtBottom && state !in positioned) {
             positioned += state
@@ -214,11 +219,12 @@ fun MediaGrid(
                 // Hold to peek, hold + drag or swipe (while selecting) to select many.
                 .onGloballyPositioned { hits.gridOrigin = it.positionInRoot() }
                 .gridTouch(state, hits, { display.map { it.key } }, selection, touchScope, haptic,
-                    topEdge = contentPadding.calculateTopPadding() + 40.dp, bottomEdge = contentPadding.calculateBottomPadding() + 40.dp) { peek = it },
+                    topEdge = contentPadding.calculateTopPadding() + 40.dp, bottomEdge = contentPadding.calculateBottomPadding() + 40.dp,
+                    onHold = { i, ready -> held = i; heldReady = ready }) { peek = it },
         ) {
             items(display.size, key = { display[it].key }, contentType = { "cell" }) { i ->
                 val item = display[i]
-                Tile(item, item.key in selection.keys, selection.active, fit = columns == 1,
+                Tile(item, item.key in selection.keys, selection.active, fit = columns == 1, pressed = held == i, ready = held == i && heldReady,
                     modifier = Modifier.onGloballyPositioned { hits.place(i, it.positionInRoot(), it.size.toSize()) },
                     onClick = { if (selection.active) selection.toggle(item.key) else onOpen(display, i) })
             }
@@ -235,12 +241,19 @@ fun MediaGrid(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun Tile(item: MediaItem, selected: Boolean, selecting: Boolean, fit: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Box(modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceVariant)
+fun Tile(item: MediaItem, selected: Boolean, selecting: Boolean, fit: Boolean = false, pressed: Boolean = false, ready: Boolean = false,
+         modifier: Modifier = Modifier, onClick: () -> Unit) {
+    // While a finger is down the photo shrinks slowly; when the hold registers it pops smaller with a ring = "you can let go".
+    val press by androidx.compose.animation.core.animateFloatAsState(
+        when { ready -> 0.88f; pressed -> 0.95f; else -> 1f },
+        if (pressed && !ready) androidx.compose.animation.core.tween(280) else androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 900f),
+        label = "press")
+    Box(modifier.aspectRatio(1f).graphicsLayer { scaleX = press; scaleY = press }.background(MaterialTheme.colorScheme.surfaceVariant)
         .combinedClickable(onClick = onClick)) {
         AsyncImage(model = thumbModel(item), contentDescription = null, contentScale = if (fit) ContentScale.Fit else ContentScale.Crop,
             modifier = Modifier.fillMaxSize())
         if (selected) Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.28f)))
+        if (ready) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.15f)).border(4.dp, Ios.blue))
         val shadow = TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.6f), blurRadius = 4f))
         if (item.isVideo) Text(fmtDuration(item.durationMs), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, style = shadow,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 5.dp, bottom = 3.dp))
