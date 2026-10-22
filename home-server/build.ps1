@@ -27,7 +27,8 @@ function Expand-Fresh($zip, $name) {
 }
 
 New-Item -ItemType Directory -Force $cache, $dist | Out-Null
-if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+# Empty it rather than delete it, so a terminal sitting in the folder doesn't stop the build.
+if (Test-Path $stage) { Get-ChildItem -Force $stage | Remove-Item -Recurse -Force }
 New-Item -ItemType Directory -Force "$stage\node", "$stage\ffmpeg", "$stage\app\geo" | Out-Null
 
 # Node
