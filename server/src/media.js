@@ -75,7 +75,13 @@ async function videoMeta(file) {
 
 // Thumbnail work is heavy; this keeps it from slowing down everything else the server is doing.
 sharp.concurrency(2);
-const runLow = (cmd, args, opts) => run('nice', ['-n', '15', cmd, ...args], opts);
+// Windows has no nice; Gallery Server already runs the whole server below normal priority there.
+const WIN = process.platform === 'win32';
+const runLow = (cmd, args, opts) => (WIN ? run(cmd, args, opts) : run('nice', ['-n', '15', cmd, ...args], opts));
+const ffmpegFrame = (file, at) => {
+  const seek = at ? ['-ss', at] : [];
+  return runLow('ffmpeg', ['-v', 'quiet', ...seek, '-i', file, '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-'], { encoding: 'buffer' });
+};
 
 // Returns something sharp can decode for the thumbnail: the file itself, a decoded HEIC, or a video frame.
 // upright: the pixels are already turned the right way (don't apply the EXIF rotation again).
@@ -83,11 +89,16 @@ async function decodable(file, type) {
   if (type === 'video') {
     for (const at of ['1', '0']) {
       try {
-        const png = await runLow('ffmpeg', ['-v', 'quiet', '-ss', at, '-i', file, '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-'], { encoding: 'buffer' });
+        const png = await ffmpegFrame(file, at);
         if (png.length) return { input: png, upright: true };
       } catch { /* try the first frame */ }
     }
     return null;
+  }
+  if (/\.(heic|heif)$/i.test(file) && WIN) {
+    // No heif-convert on Windows; Gallery Server's ffmpeg (7.1+) decodes HEIC grids and turns them upright.
+    const png = await ffmpegFrame(file);
+    return png.length ? { input: png, upright: true } : null;
   }
   if (/\.(heic|heif)$/i.test(file)) {
     // sharp's libvips can't decode iPhone HEVC photos. heif-convert (native libheif) runs in its own process,
