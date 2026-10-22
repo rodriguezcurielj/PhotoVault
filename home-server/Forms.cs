@@ -128,9 +128,9 @@ namespace GalleryServer
         readonly FlowLayoutPanel remoteBox = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Color.FromArgb(242, 246, 255), Padding = new Padding(14, 12, 14, 12), Margin = new Padding(0, 4, 0, 10) };
         readonly Label remoteStatus = Ui.Text("", null, Ui.Muted, 430);
         readonly LinkLabel remoteLink = new LinkLabel { AutoSize = true, Margin = new Padding(0, 0, 0, 4), Visible = false };
-        readonly Button turnOn = Ui.Primary("Turn on access from anywhere");
+        readonly FlowLayoutPanel choose = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(0) };
         readonly LinkLabel turnOff = new LinkLabel { Text = "Turn off access from anywhere", AutoSize = true, Margin = new Padding(0, 0, 0, 8) };
-        string pendingUrl;
+        string pendingUrl, stepText;
 
         public ConnectForm(TunnelHost tunnel)
         {
@@ -147,16 +147,20 @@ namespace GalleryServer
             col.Controls.Add(others);
 
             remoteBox.Controls.Add(Ui.Text("Use it on any network", Ui.Big, null, 430));
-            remoteBox.Controls.Add(Ui.Text("Let your phone reach Gallery from anywhere: school or work Wi-Fi, cell data, or a trip. It's free and uses Tailscale. You sign in once with Google, Microsoft, Apple or GitHub.", null, null, 430));
-            turnOn.Click += (s, e) =>
-            {
-                Settings.Remote = true;
-                remoteStatus.Text = "Opening Tailscale sign-in in your browser…";
-                tunnel.Interactive = true;
-                tunnel.Start();
-                Fill();
-            };
-            remoteBox.Controls.Add(turnOn);
+            remoteBox.Controls.Add(Ui.Text("Let your phone reach Gallery from anywhere: school or work Wi-Fi, cell data, or a trip. It's free and uses Tailscale, a secure connection service.", null, null, 430));
+            choose.Controls.Add(Ui.Text("Do you have a Tailscale account?", new Font("Segoe UI Semibold", 10f), null, 430));
+            var isNew = Ui.Primary("I'm new: make a free account");
+            isNew.Margin = new Padding(0, 0, 0, 6);
+            isNew.Click += (s, e) => TurnOn(
+                "In your browser, pick Google, Microsoft, Apple or GitHub. Tailscale makes your free account with it. " +
+                "Answer its quick questions, and when it asks about this device, click Connect.");
+            var hasOne = new Button { Text = "I have one: sign in", AutoSize = true, Padding = new Padding(14, 4, 14, 4), Font = new Font("Segoe UI Semibold", 10f), BackColor = Color.White, FlatStyle = FlatStyle.Flat, ForeColor = Ui.Blue };
+            hasOne.FlatAppearance.BorderColor = Ui.Blue;
+            hasOne.Click += (s, e) => TurnOn(
+                "In your browser, sign in the same way you always sign in to Tailscale, then click Connect to add this PC.");
+            choose.Controls.Add(isNew);
+            choose.Controls.Add(hasOne);
+            remoteBox.Controls.Add(choose);
             remoteBox.Controls.Add(remoteStatus);
             remoteLink.LinkClicked += (s, e) => { if (pendingUrl != null) Program.OpenUrl(pendingUrl); };
             remoteBox.Controls.Add(remoteLink);
@@ -211,10 +215,11 @@ namespace GalleryServer
             others.Visible = others.Text.Length > 0;
             address.Text = url ?? "";
             remoteBox.Visible = remote == null;
-            turnOn.Visible = !tunnel.On;
-            remoteStatus.Visible = tunnel.On;
-            remoteLink.Visible = tunnel.On && pendingUrl != null;
-            turnOff.Visible = tunnel.On;
+            bool started = tunnel.On && !tunnel.Preparing;
+            choose.Visible = !started;
+            remoteStatus.Visible = started;
+            remoteLink.Visible = started && pendingUrl != null;
+            turnOff.Visible = started;
             qr.Image = null;
             if (url == null) return;
             using (var gen = new QRCodeGenerator())
@@ -223,13 +228,29 @@ namespace GalleryServer
                 qr.Image = code.GetGraphic(10, Color.Black, Color.White, true);
         }
 
-        // Steps of turning on access from anywhere, from the tunnel.
+        void TurnOn(string howTo)
+        {
+            Settings.Remote = true;
+            stepText = howTo;
+            tunnel.Interactive = true;
+            var ready = tunnel.LoginUrl;
+            tunnel.Start();
+            if (ready != null)
+            {
+                Program.OpenUrl(ready);   // already waiting, opens right away
+                ShowStep(null, ready);
+            }
+            else ShowStep("Opening Tailscale in your browser…");
+            Fill();
+        }
+
+        // Steps of turning on access from anywhere, from the tunnel. text null = the sign-in instructions.
         public void ShowStep(string text, string link = null)
         {
             if (IsDisposed) return;
-            remoteStatus.Text = text;
+            remoteStatus.Text = text ?? stepText ?? "Sign in to Tailscale in your browser to finish.";
             pendingUrl = link;
-            remoteLink.Text = link == null ? "" : "Didn't open? Click here";
+            remoteLink.Text = link == null ? "" : "Browser didn't open? Click here";
             remoteLink.Visible = link != null;
         }
 

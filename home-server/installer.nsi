@@ -53,6 +53,7 @@ Section "Install"
   CreateShortcut "$SMPROGRAMS\${APP}.lnk" "$INSTDIR\${EXE}"
   nsExec::Exec 'netsh advfirewall firewall delete rule name="${APP}"'
   nsExec::Exec 'netsh advfirewall firewall add rule name="${APP}" dir=in action=allow program="$INSTDIR\node\node.exe" enable=yes profile=any'
+  nsExec::Exec 'netsh advfirewall firewall add rule name="${APP}" dir=in action=allow program="$INSTDIR\gallery-tunnel.exe" enable=yes profile=any'
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr HKLM "Software\${APP}" "InstallDir" "$INSTDIR"

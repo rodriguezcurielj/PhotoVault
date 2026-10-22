@@ -15,6 +15,8 @@ namespace GalleryServer
         public string Url { get; private set; }
         public bool Waiting { get; private set; }   // started, but no address yet
         public bool Interactive;                     // the person just clicked "Turn on", so open sign-in pages for them
+        public bool Preparing { get; private set; }  // started early (Connect window open) so the sign-in link is ready
+        public string LoginUrl { get; private set; }
 
         Process proc;
         bool stopping = true;
@@ -23,10 +25,21 @@ namespace GalleryServer
 
         public void Start()
         {
+            Preparing = false;
             if (On) return;
             stopping = false;
             Waiting = true;
             Launch();
+        }
+
+        // Starts it in the background before the person clicks, so the sign-in page opens right away.
+        // (The first run of a new exe can take 10+ seconds while antivirus checks it.)
+        // Only before the first sign-in: once signed in, starting early would turn access on by itself.
+        public void Prepare()
+        {
+            if (On || Settings.RemoteUrl != null) return;
+            Start();
+            Preparing = true;
         }
 
         void Launch()
@@ -58,11 +71,13 @@ namespace GalleryServer
             string kind = i > 0 ? line.Substring(0, i) : line, rest = i > 0 ? line.Substring(i + 1).Trim() : "";
             switch (kind)
             {
-                case "LOGIN": Login?.Invoke(rest); break;
+                case "LOGIN": LoginUrl = rest; Login?.Invoke(rest); break;
                 case "ENABLE": Enable?.Invoke(rest); break;
                 case "URL":
+                    if (Preparing) { Stop(); break; }   // already signed in; wait for them to turn it on
                     Url = rest;
                     Waiting = false;
+                    LoginUrl = null;
                     Settings.RemoteUrl = rest;
                     Ready?.Invoke(rest);
                     break;
@@ -75,8 +90,8 @@ namespace GalleryServer
         public void Stop()
         {
             stopping = true;
-            Waiting = false;
-            Url = null;
+            Waiting = Preparing = false;
+            Url = LoginUrl = null;
             try { if (proc != null && !proc.HasExited) proc.Kill(); } catch { }
         }
 

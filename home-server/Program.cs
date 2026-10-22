@@ -153,7 +153,8 @@ namespace GalleryServer
             tray.BalloonTipClicked += (s, e) => { if (balloonUrl != null) Program.OpenUrl(balloonUrl); };
             tunnel.Login += url => ui.BeginInvoke((Action)(() =>
             {
-                connect?.ShowStep("Sign in to Tailscale in your browser to finish.", url);
+                if (tunnel.Preparing) return;   // ready for when they click
+                connect?.ShowStep(null, url);
                 if (tunnel.Interactive) Program.OpenUrl(url);
                 else
                 {
@@ -163,13 +164,13 @@ namespace GalleryServer
             }));
             tunnel.Enable += url => ui.BeginInvoke((Action)(() =>
             {
+                if (tunnel.Preparing) return;
                 connect?.ShowStep("One more step: in your browser, click Enable to turn on the public address (Tailscale Funnel).", url);
                 if (tunnel.Interactive) Program.OpenUrl(url);
                 else { balloonUrl = url; tray.ShowBalloonTip(15000, "Gallery Server needs one click", "Turn on Tailscale Funnel so your phone can reach Gallery from anywhere. Click here.", ToolTipIcon.Warning); }
             }));
             tunnel.Ready += url => ui.BeginInvoke((Action)(() =>
-            {
-                connect?.ShowStep("");
+            {                connect?.ShowStep("");
                 connect?.Fill();
                 if (tunnel.Interactive)
                 {
@@ -178,7 +179,7 @@ namespace GalleryServer
                 }
                 tunnel.Interactive = false;
             }));
-            tunnel.Error += msg => ui.BeginInvoke((Action)(() => { if (tunnel.Waiting) connect?.ShowStep("Still connecting… (" + msg + ")"); }));
+            tunnel.Error += msg => ui.BeginInvoke((Action)(() => { if (tunnel.Waiting && !tunnel.Preparing) connect?.ShowStep("Still connecting… (" + msg + ")"); }));
         }
 
         void ShowConnect()
@@ -186,6 +187,7 @@ namespace GalleryServer
             if (connect == null || connect.IsDisposed)
             {
                 connect = new ConnectForm(tunnel);
+                if (!Settings.Remote) tunnel.Prepare();
                 connect.SetRunning(host.Running);
                 connect.Show();
             }

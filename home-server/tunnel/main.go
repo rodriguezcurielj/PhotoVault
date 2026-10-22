@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
@@ -105,6 +106,7 @@ func main() {
 	}
 
 	enableFunnel(lc)
+	getCert(lc, dnsName)
 
 	l, err := listenFunnel(s)
 	if err != nil {
@@ -168,12 +170,47 @@ func listenFunnel(s *tsnet.Server) (net.Listener, error) {
 	var err error
 	for i := 0; i < 30; i++ {
 		var l net.Listener
-		if l, err = s.ListenFunnel("tcp", ":443"); err == nil {
+		if l, err = s.ListenFunnel("tcp", ":443", tsnet.FunnelTLSConfig(certConfig(s))); err == nil {
 			return l, nil
 		}
 		time.Sleep(4 * time.Second)
 	}
 	return nil, err
+}
+
+// getCert makes the HTTPS certificate before the address is shown. The first one takes a minute or
+// more (Let's Encrypt); fetching it during a visitor's request would be cut off when they give up.
+func getCert(lc *local.Client, domain string) {
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		_, _, err := lc.CertPair(ctx, domain)
+		cancel()
+		if err == nil {
+			return
+		}
+		say("ERR certificate: %v", err)
+		time.Sleep(10 * time.Second)
+	}
+}
+
+// certConfig gets the HTTPS certificate for the address from Tailscale (Let's Encrypt) and reports
+// problems, e.g. HTTPS certificates turned off for the account.
+func certConfig(s *tsnet.Server) *tls.Config {
+	lc, _ := s.LocalClient()
+	var mu sync.Mutex
+	lastErr := ""
+	return &tls.Config{GetCertificate: func(hi *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		c, err := lc.GetCertificate(hi)
+		if err != nil {
+			mu.Lock()
+			if err.Error() != lastErr {
+				lastErr = err.Error()
+				say("ERR certificate: %v", err)
+			}
+			mu.Unlock()
+		}
+		return c, err
+	}}
 }
 
 func fail(err error) {
