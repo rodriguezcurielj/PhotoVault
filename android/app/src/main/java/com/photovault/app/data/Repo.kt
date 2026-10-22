@@ -42,6 +42,9 @@ object Repo {
     val albums = MutableStateFlow<List<Album>>(emptyList())
     val memories = MutableStateFlow<List<Memory>>(emptyList())
     val loggedIn = MutableStateFlow(false)
+    /** Skipped signing in (see [Prefs.guest]). */
+    val guest = MutableStateFlow(false)
+    fun setGuest(on: Boolean) { prefs.guest = on; guest.value = on }
     val profile = MutableStateFlow<Api.Profile?>(null)
 
     /** Every item, phone + server, merged (includes archived and trashed server items). */
@@ -55,6 +58,7 @@ object Repo {
         api = Api(prefs)
         backupDb = BackupDb(app)
         loggedIn.value = prefs.token != null
+        guest.value = prefs.guest
         loadCache()
         backed.value = backupDb.all()
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {

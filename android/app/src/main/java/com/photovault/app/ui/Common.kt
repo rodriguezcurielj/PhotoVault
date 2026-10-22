@@ -79,6 +79,7 @@ import coil3.compose.AsyncImage
 import com.photovault.app.LocalThumb
 import com.photovault.app.data.MediaItem
 import com.photovault.app.data.Repo
+import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -258,7 +259,8 @@ fun Tile(item: MediaItem, selected: Boolean, selecting: Boolean, fit: Boolean = 
         if (item.isVideo) Text(fmtDuration(item.durationMs), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, style = shadow,
             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 5.dp, bottom = 3.dp))
         if (item.favorite) Icon(Icons.Filled.Favorite, null, tint = Color.White, modifier = Modifier.align(Alignment.BottomStart).padding(4.dp).size(13.dp))
-        if (!selecting) Box(Modifier.align(Alignment.TopEnd).padding(4.dp).size(18.dp).background(Color.Black.copy(alpha = 0.35f), CircleShape),
+        // Uploaded / not uploaded badge (not shown without an account, where nothing is uploaded).
+        if (!selecting && Repo.loggedIn.collectAsState().value) Box(Modifier.align(Alignment.TopEnd).padding(4.dp).size(18.dp).background(Color.Black.copy(alpha = 0.35f), CircleShape),
             contentAlignment = Alignment.Center) {
             if (item.remote != null) Icon(Icons.Filled.CloudDone, "Uploaded", tint = Color.White, modifier = Modifier.size(12.dp))
             else Icon(Icons.Filled.CloudOff, "Not uploaded", tint = Color(0xFFFF9F0A), modifier = Modifier.size(12.dp))

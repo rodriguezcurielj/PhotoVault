@@ -67,6 +67,8 @@ class Api(private val prefs: Prefs) {
 
     private suspend fun call(method: String, path: String, body: Any? = null, headers: Map<String, String> = emptyMap()): String =
         withContext(Dispatchers.IO) {
+            if (prefs.token == null && !path.startsWith("/api/login") && !path.startsWith("/api/forgot") && !path.startsWith("/api/reset"))
+                throw ApiException(401, "Sign in to Gallery to use this (Settings → Sign In)")
             val rb = when (body) {
                 null -> if (method == "GET" || method == "DELETE") null else "{}".toRequestBody(json)
                 is RequestBody -> body

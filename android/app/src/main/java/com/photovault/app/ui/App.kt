@@ -99,10 +99,11 @@ fun App(actions: Actions, initial: Screen? = null, onExit: (() -> Unit)? = null)
     val scope = rememberCoroutineScope()
     val app = remember { AppController(actions, snackbar, scope, onExit).also { c -> if (initial != null) c.stack[0] = initial } }
     val loggedIn by Repo.loggedIn.collectAsState()
+    val guest by Repo.guest.collectAsState()
 
     CompositionLocalProvider(LocalApp provides app) {
         Box(Modifier.fillMaxSize()) {
-            if (!loggedIn && app.stack.firstOrNull() is Screen.Home) {
+            if (!loggedIn && !guest && app.stack.firstOrNull() is Screen.Home) {
                 LoginScreen()
             } else {
                 BackHandler(enabled = app.stack.size > 1 || app.tab != 0 || onExit != null) { app.pop() }

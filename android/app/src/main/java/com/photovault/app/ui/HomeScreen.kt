@@ -211,6 +211,7 @@ private fun BackupBadge() {
     val app = LocalApp.current
     val status by Repo.backup.collectAsState()
     val online by Repo.online.collectAsState()
+    if (!Repo.loggedIn.collectAsState().value) return // nothing to back up to without an account
     Surface(onClick = { app.push(Screen.Settings) }, shape = CircleShape, color = Color.Black.copy(alpha = 0.35f)) {
         Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
             when {

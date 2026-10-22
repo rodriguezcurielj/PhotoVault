@@ -48,6 +48,10 @@ class Prefs(context: Context) {
     var accent: Long
         get() = p.getLong("accent", 0xFF007AFF)
         set(v) = p.edit().putLong("accent", v).apply()
+    /** Using the app without signing in: just this phone's photos, like a normal gallery. */
+    var guest: Boolean
+        get() = p.getBoolean("guest", false)
+        set(v) = p.edit().putBoolean("guest", v).apply()
     /** Last app versionCode we sent an "update available" notification for. */
     var notifiedVersion: Int
         get() = p.getInt("notifiedVersion", 0)

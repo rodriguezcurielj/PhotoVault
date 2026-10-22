@@ -195,6 +195,7 @@ fun LoginScreen() {
         Repo.prefs.token = token
         Repo.prefs.lastSync = 0
         Repo.loggedIn.value = true
+        Repo.setGuest(false)
         BackupWorker.schedule(Repo.app)
         com.photovault.app.data.Tailnet.start(Repo.app)
     }
@@ -234,6 +235,8 @@ fun LoginScreen() {
             }
         }
         TextButton(onClick = { Repo.prefs.server = serverUrl(); forgot = true }, modifier = Modifier.padding(top = 10.dp)) { Text("Forgot password?", color = Ios.blue, fontSize = 15.sp) }
+        // No account needed to just look at this phone's photos; sign in later from Settings.
+        TextButton(onClick = { Repo.setGuest(true) }) { Text("Use Without Signing In", color = Ios.blue, fontSize = 15.sp) }
         Spacer(Modifier.height(30.dp))
         if (editServer) Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Ios.cell)) {
             PlainField(server, { server = it }, "Server address", KeyboardType.Uri)
@@ -428,9 +431,11 @@ fun SettingsScreen() {
     Column(Modifier.fillMaxSize().background(Ios.grouped)) {
         TitleOverlay("Settings", null, onPhotos = false, onBack = { app.pop() })
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 40.dp)) {
-            // Profile card
+            // Profile card (or, without an account, a way to sign in)
             Spacer(Modifier.height(8.dp))
-            Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Ios.cell)
+            if (!Repo.loggedIn.collectAsState().value) GroupCard(null, footer = "Without signing in, Gallery shows the photos on this phone only. Sign in to back them up and see them everywhere.") {
+                Cell("Sign In to Gallery", "Back up and get links, albums and more", Icons.Filled.CloudUpload, Ios.blue, divider = false, onClick = { app.pop(); Repo.setGuest(false) })
+            } else Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Ios.cell)
                 .clickable { app.push(Screen.Profile) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Avatar(profile, 60.dp)
                 Column(Modifier.weight(1f).padding(start = 14.dp)) {
@@ -440,7 +445,8 @@ fun SettingsScreen() {
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = Ios.gray.copy(alpha = 0.6f))
             }
 
-            GroupCard("Backup", footer = stats) {
+            val signedIn = Repo.loggedIn.collectAsState().value
+            if (signedIn) GroupCard("Backup", footer = stats) {
                 Cell(when {
                     online == false -> "Can't reach the server"
                     status.running -> "Backing up ${status.done} of ${status.pending}"
@@ -495,7 +501,7 @@ fun SettingsScreen() {
                     Icons.Filled.SystemUpdate, Color(0xFF34C759), divider = false, onClick = { app.run { app.actions.updateApp() } })
             }
 
-            GroupCard("Account") {
+            if (signedIn) GroupCard("Account") {
                 Cell("Server", icon = Icons.Filled.Dns, iconColor = Color(0xFF8E8E93), value = p.server.removePrefix("https://").substringBefore('.'), chevron = false)
                 val route by com.photovault.app.data.Tailnet.state.collectAsState()
                 Cell("Connection", when (route) {

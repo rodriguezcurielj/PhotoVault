@@ -14,8 +14,8 @@ android {
         applicationId 'com.photovault.app'
         minSdk 30
         targetSdk 36
-        versionCode 11
-        versionName '2.9'
+        versionCode 12
+        versionName '3.0'
         // Where the app looks for your PhotoVault server until you change it in Settings.
         buildConfigField 'String', 'DEFAULT_SERVER', '"https://budget-pc.tail05789d.ts.net:8443"'
     }
