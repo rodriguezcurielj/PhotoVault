@@ -126,7 +126,7 @@ namespace GalleryServer
         readonly Label others = Ui.Text("", null, Ui.Muted);
         readonly Label state = Ui.Text("", null, Ui.Muted);
         readonly FlowLayoutPanel remoteBox = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Color.FromArgb(242, 246, 255), Padding = new Padding(14, 12, 14, 12), Margin = new Padding(0, 4, 0, 10) };
-        readonly Label remoteStatus = Ui.Text("", null, Ui.Muted, 430);
+        readonly Label remoteStatus = Ui.Text("", null, null, 430);
         readonly LinkLabel remoteLink = new LinkLabel { AutoSize = true, Margin = new Padding(0, 0, 0, 4), Visible = false };
         readonly FlowLayoutPanel choose = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(0) };
         readonly LinkLabel turnOff = new LinkLabel { Text = "Turn off access from anywhere", AutoSize = true, Margin = new Padding(0, 0, 0, 8) };
@@ -152,14 +152,21 @@ namespace GalleryServer
             var isNew = Ui.Primary("I'm new: make a free account");
             isNew.Margin = new Padding(0, 0, 0, 6);
             isNew.Click += (s, e) => TurnOn(
-                "In your browser, pick Google, Microsoft, Apple or GitHub. Tailscale makes your free account with it. " +
-                "Answer its quick questions, and when it asks about this device, click Connect.");
+                "Finish in your browser:\n" +
+                "1.  Pick Google, Microsoft, Apple or GitHub to make your free Tailscale account.\n" +
+                "2.  If it asks a few questions about how you'll use it, answer them or skip.\n" +
+                "3.  When it shows this PC (\"gallery\"), click Connect.\n" +
+                "Don't download or install the Tailscale app. If Tailscale offers it, skip it or close that page. Gallery Server already has it built in.");
             var hasOne = new Button { Text = "I have one: sign in", AutoSize = true, Padding = new Padding(14, 4, 14, 4), Font = new Font("Segoe UI Semibold", 10f), BackColor = Color.White, FlatStyle = FlatStyle.Flat, ForeColor = Ui.Blue };
             hasOne.FlatAppearance.BorderColor = Ui.Blue;
             hasOne.Click += (s, e) => TurnOn(
-                "In your browser, sign in the same way you always sign in to Tailscale, then click Connect to add this PC.");
+                "Finish in your browser:\n" +
+                "1.  Sign in the way you usually sign in to Tailscale (the same Google, Microsoft, Apple or GitHub account).\n" +
+                "2.  When it shows this PC (\"gallery\"), click Connect.\n" +
+                "Don't download or install anything. Gallery Server already has Tailscale built in.");
             choose.Controls.Add(isNew);
             choose.Controls.Add(hasOne);
+            choose.Controls.Add(Ui.Text("You only need an account. You don't need to install the Tailscale app, on this PC or on your phone.", null, Ui.Muted, 430));
             remoteBox.Controls.Add(choose);
             remoteBox.Controls.Add(remoteStatus);
             remoteLink.LinkClicked += (s, e) => { if (pendingUrl != null) Program.OpenUrl(pendingUrl); };
