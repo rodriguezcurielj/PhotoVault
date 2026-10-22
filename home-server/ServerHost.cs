@@ -2,14 +2,12 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace GalleryServer
 {
     // Runs the Gallery server (node.exe + app\src\server.js) and restarts it if it stops.
-    // The node process is put in a job object, so it closes whenever this app closes, even if it's killed.
     sealed class ServerHost : IDisposable
     {
         public static readonly string Root = Environment.GetEnvironmentVariable("GALLERY_SERVER_ROOT") ?? AppDomain.CurrentDomain.BaseDirectory;
@@ -20,7 +18,6 @@ namespace GalleryServer
 
         Process proc;
         bool stopping;
-        readonly IntPtr job = CreateJob();
         readonly object logLock = new object();
         Timer healthTimer;
 
@@ -70,7 +67,7 @@ namespace GalleryServer
                 RetryLater();
                 return;
             }
-            AssignProcessToJobObject(job, proc.Handle);
+            Job.Add(proc);
             try { proc.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
             proc.OutputDataReceived += (s, e) => { if (e.Data != null) Log(e.Data); };
             proc.ErrorDataReceived += (s, e) => { if (e.Data != null) Log(e.Data); };
@@ -135,45 +132,6 @@ namespace GalleryServer
             stopping = true;
             healthTimer?.Dispose();
             try { if (proc != null && !proc.HasExited) proc.Kill(); } catch { }
-            CloseHandle(job);
         }
-
-        // ----- job object: child processes die with this app -----
-        static IntPtr CreateJob()
-        {
-            var h = CreateJobObject(IntPtr.Zero, null);
-            var info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
-            info.BasicLimitInformation.LimitFlags = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-            int len = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
-            var ptr = Marshal.AllocHGlobal(len);
-            Marshal.StructureToPtr(info, ptr, false);
-            SetInformationJobObject(h, 9 /* ExtendedLimitInformation */, ptr, (uint)len);
-            Marshal.FreeHGlobal(ptr);
-            return h;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        struct JOBOBJECT_BASIC_LIMIT_INFORMATION
-        {
-            public long PerProcessUserTimeLimit, PerJobUserTimeLimit;
-            public uint LimitFlags;
-            public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize;
-            public uint ActiveProcessLimit;
-            public UIntPtr Affinity;
-            public uint PriorityClass, SchedulingClass;
-        }
-        [StructLayout(LayoutKind.Sequential)]
-        struct IO_COUNTERS { public ulong a, b, c, d, e, f; }
-        [StructLayout(LayoutKind.Sequential)]
-        struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-        {
-            public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
-            public IO_COUNTERS IoInfo;
-            public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
-        }
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr CreateJobObject(IntPtr a, string name);
-        [DllImport("kernel32.dll")] static extern bool SetInformationJobObject(IntPtr job, int cls, IntPtr info, uint len);
-        [DllImport("kernel32.dll")] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr proc);
-        [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
     }
 }

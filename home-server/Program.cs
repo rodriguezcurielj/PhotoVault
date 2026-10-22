@@ -45,6 +45,11 @@ namespace GalleryServer
             }
         }
 
+        public static void OpenUrl(string url)
+        {
+            try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+        }
+
         static void Crash(Exception e)
         {
             try
@@ -77,6 +82,7 @@ namespace GalleryServer
     {
         readonly NotifyIcon tray;
         readonly ServerHost host = new ServerHost();
+        readonly TunnelHost tunnel = new TunnelHost();
         readonly ToolStripMenuItem status, awake;
         readonly Control ui = new Control();
         ConnectForm connect;
@@ -112,6 +118,8 @@ namespace GalleryServer
             host.StateChanged += ok => ui.BeginInvoke((Action)(() => OnState(ok)));
             host.Start();
             ApplyKeepAwake();
+            WireTunnel();
+            if (Settings.Remote) tunnel.Start();
 
             // The installer and the Start menu open it without --background; show the phone setup then.
             bool background = Environment.GetCommandLineArgs().Length > 1 && Environment.GetCommandLineArgs()[1] == "--background";
@@ -136,13 +144,48 @@ namespace GalleryServer
             }
         }
 
-        void OpenGallery() => Process.Start(new ProcessStartInfo($"http://localhost:{Settings.Port}/") { UseShellExecute = true });
+        void OpenGallery() => Program.OpenUrl($"http://localhost:{Settings.Port}/");
+
+        // Access from anywhere: open the Tailscale pages when the person just turned it on; otherwise tell them.
+        void WireTunnel()
+        {
+            string balloonUrl = null;
+            tray.BalloonTipClicked += (s, e) => { if (balloonUrl != null) Program.OpenUrl(balloonUrl); };
+            tunnel.Login += url => ui.BeginInvoke((Action)(() =>
+            {
+                connect?.ShowStep("Sign in to Tailscale in your browser to finish.", url);
+                if (tunnel.Interactive) Program.OpenUrl(url);
+                else
+                {
+                    balloonUrl = url;
+                    tray.ShowBalloonTip(15000, "Sign in to keep access from anywhere", "Your phone can only reach Gallery at home until you sign in to Tailscale again. Click here.", ToolTipIcon.Warning);
+                }
+            }));
+            tunnel.Enable += url => ui.BeginInvoke((Action)(() =>
+            {
+                connect?.ShowStep("One more step: in your browser, click Enable to turn on the public address (Tailscale Funnel).", url);
+                if (tunnel.Interactive) Program.OpenUrl(url);
+                else { balloonUrl = url; tray.ShowBalloonTip(15000, "Gallery Server needs one click", "Turn on Tailscale Funnel so your phone can reach Gallery from anywhere. Click here.", ToolTipIcon.Warning); }
+            }));
+            tunnel.Ready += url => ui.BeginInvoke((Action)(() =>
+            {
+                connect?.ShowStep("");
+                connect?.Fill();
+                if (tunnel.Interactive)
+                {
+                    balloonUrl = null;
+                    tray.ShowBalloonTip(8000, "Access from anywhere is on", $"Your phone can now reach Gallery on any network at {url}", ToolTipIcon.Info);
+                }
+                tunnel.Interactive = false;
+            }));
+            tunnel.Error += msg => ui.BeginInvoke((Action)(() => { if (tunnel.Waiting) connect?.ShowStep("Still connecting… (" + msg + ")"); }));
+        }
 
         void ShowConnect()
         {
             if (connect == null || connect.IsDisposed)
             {
-                connect = new ConnectForm();
+                connect = new ConnectForm(tunnel);
                 connect.SetRunning(host.Running);
                 connect.Show();
             }
@@ -159,12 +202,13 @@ namespace GalleryServer
                     "Gallery Server", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
             tray.Visible = false;
             host.Dispose();
+            tunnel.Dispose();
             ExitThread();
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) { tray.Dispose(); host.Dispose(); }
+            if (disposing) { tray.Dispose(); host.Dispose(); tunnel.Dispose(); }
             base.Dispose(disposing);
         }
 

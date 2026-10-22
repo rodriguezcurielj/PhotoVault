@@ -47,6 +47,19 @@ namespace GalleryServer
             set { values["KeepAwake"] = value ? "1" : "0"; Save(); }
         }
 
+        // Access from anywhere (Tailscale Funnel) is on, and the public address it got last time.
+        public static bool Remote
+        {
+            get => values.TryGetValue("Remote", out var v) && v == "1";
+            set { values["Remote"] = value ? "1" : "0"; Save(); }
+        }
+
+        public static string RemoteUrl
+        {
+            get => values.TryGetValue("RemoteUrl", out var v) && v.Length > 0 ? v : null;
+            set { values["RemoteUrl"] = value ?? ""; Save(); }
+        }
+
         // A good first guess for the photos folder: the fixed drive with the most free space (not C: if there's another).
         public static string SuggestedDataDir()
         {

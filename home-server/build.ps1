@@ -63,6 +63,17 @@ try {
 if ($LASTEXITCODE -ne 0) { throw 'The tray app build failed.' }
 Copy-Item "$here\bin\out\Gallery Server.exe", "$here\bin\out\Gallery Server.exe.config", "$here\bin\out\QRCoder.dll" $stage
 
+# Access from anywhere (Tailscale Funnel, Go + tsnet). Needs Go: winget install GoLang.Go, or ~\tools\go.
+$go = "$env:USERPROFILE\tools\go\bin\go.exe"
+if (-not (Test-Path $go)) { $go = (Get-Command go -ErrorAction SilentlyContinue).Source }
+if (-not $go) { throw 'Go not found (needed for gallery-tunnel.exe).' }
+Push-Location "$here\tunnel"
+try {
+    $env:GOOS = 'windows'; $env:GOARCH = 'amd64'; $env:CGO_ENABLED = '0'
+    & $go build -trimpath -ldflags='-s -w' -o "$stage\gallery-tunnel.exe" .
+    if ($LASTEXITCODE -ne 0) { throw 'The tunnel build failed.' }
+} finally { Pop-Location; Remove-Item Env:GOOS, Env:GOARCH, Env:CGO_ENABLED -ErrorAction SilentlyContinue }
+
 # Installer (NSIS from electron-builder's cache, or a normal NSIS install)
 $makensis = @(
     (Get-ChildItem "$env:LOCALAPPDATA\electron-builder\Cache\nsis" -Recurse -Filter makensis.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName),
