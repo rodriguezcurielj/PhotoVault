@@ -2,6 +2,7 @@
 Unicode true
 SetCompressor /SOLID lzma
 !include "MUI2.nsh"
+!include "FileFunc.nsh"
 
 !define APP "Gallery Server"
 !define EXE "Gallery Server.exe"
@@ -64,6 +65,10 @@ Section "Install"
   WriteRegStr HKLM "${UNINST}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKLM "${UNINST}" "NoModify" 1
   WriteRegDWORD HKLM "${UNINST}" "NoRepair" 1
+  ; Without these, Windows guesses the app's size in Settings > Apps and can show far more than it uses.
+  WriteRegStr HKLM "${UNINST}" "InstallLocation" "$INSTDIR"
+  ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
+  WriteRegDWORD HKLM "${UNINST}" "EstimatedSize" $0
 SectionEnd
 
 Section "Uninstall"
