@@ -66,7 +66,7 @@ function open(i) {
   const s = $('stage');
   s.innerHTML = '';
   const el = document.createElement(a.type === 'video' ? 'video' : 'img');
-  el.src = a.type === 'video' ? `${base}/original/${a.id}` : `${base}/preview/${a.id}`;
+  el.src = a.type === 'video' ? `${base}/play/${a.id}` : `${base}/preview/${a.id}`;
   if (a.type === 'video') { el.controls = true; el.autoplay = true; }
   s.append(el);
   $('dl').href = `${base}/original/${a.id}?download=1`;

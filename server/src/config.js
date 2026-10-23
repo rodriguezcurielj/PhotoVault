@@ -7,6 +7,7 @@ const dirs = {
   LIBRARY_DIR: path.join(DATA_DIR, 'library'),   // originals, organised as YYYY/MM/
   THUMB_DIR: path.join(DATA_DIR, 'thumbs'),      // small square-ish grid images
   PREVIEW_DIR: path.join(DATA_DIR, 'previews'),  // screen-size images for the viewer
+  PLAYBACK_DIR: path.join(DATA_DIR, 'playback'), // H.264 copies of videos browsers can't play (HEVC, 10-bit HDR)
   UPLOAD_TMP: path.join(DATA_DIR, 'tmp'),
   IMPORT_DIR: path.join(DATA_DIR, 'import'),     // drop files here to add them to the library
 };

@@ -7,7 +7,7 @@ const sharp = require('sharp');
 const exifr = require('exifr');
 const { db } = require('./db');
 const geo = require('./geo');
-const { LIBRARY_DIR, THUMB_DIR, PREVIEW_DIR, UPLOAD_TMP } = require('./config');
+const { LIBRARY_DIR, THUMB_DIR, PREVIEW_DIR, PLAYBACK_DIR, UPLOAD_TMP } = require('./config');
 
 const IMAGE_EXT = /\.(jpe?g|png|gif|webp|heic|heif|avif|bmp|tiff?|dng)$/i;
 const VIDEO_EXT = /\.(mp4|mov|m4v|3gp|webm|mkv|avi)$/i;
@@ -21,7 +21,7 @@ const MIME = {
 const mimeOf = name => MIME[path.extname(name).slice(1).toLowerCase()] || 'application/octet-stream';
 
 const run = (cmd, args, opts = {}) => new Promise((resolve, reject) =>
-  execFile(cmd, args, { maxBuffer: 64 * 1024 * 1024, encoding: opts.encoding || 'utf8', timeout: 120000 }, (err, out) => (err ? reject(err) : resolve(out))));
+  execFile(cmd, args, { maxBuffer: 64 * 1024 * 1024, encoding: opts.encoding || 'utf8', timeout: opts.timeout || 120000 }, (err, out) => (err ? reject(err) : resolve(out))));
 
 function sha1File(file) {
   return new Promise((resolve, reject) => {
@@ -183,13 +183,72 @@ async function ingest(tmpFile, opts) {
 
   const asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(Number(lastInsertRowid));
   try { await makeRenditions(asset); } catch (e) { console.warn(`thumbnail failed for ${name}: ${e.message}`); }
+  makePlayback(asset);
   return { asset: db.prepare('SELECT * FROM assets WHERE id = ?').get(asset.id), duplicate: false };
+}
+
+// ----- browser playback copies
+// Phones record HEVC (often 10-bit HDR). Chrome and Edge on most PCs can't decode it: the sound plays but the
+// picture freezes. Those videos (and .mov and other containers) get an H.264 MP4 copy that every browser plays.
+const playbackFile = asset => path.join(PLAYBACK_DIR, `${asset.id}.mp4`);
+const checked = new Set(); // videos already found to play fine as they are
+async function needsPlayback(asset) {
+  if (asset.type !== 'video' || checked.has(asset.id)) return false;
+  if (!/\.(mp4|m4v)$/i.test(asset.file)) return true;
+  try {
+    const out = await run('ffprobe', ['-v', 'quiet', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,pix_fmt', '-of', 'csv=p=0', path.join(LIBRARY_DIR, asset.file)]);
+    const [codec, pix] = out.trim().split(',');
+    if (codec === 'h264' && /^yuvj?420p$/.test(pix)) { checked.add(asset.id); return false; }
+    return !!codec;
+  } catch { return false; }
+}
+// One at a time (each takes about as long as the video); ones someone is waiting to watch go first.
+const playQueue = [], playJobs = new Map();
+let playBusy = false;
+async function pumpPlayback() {
+  if (playBusy || !playQueue.length) return;
+  playBusy = true;
+  const job = playQueue.shift();
+  const out = playbackFile(job.asset), tmp = out + '.part';
+  try {
+    if (await needsPlayback(job.asset)) {
+      // Software encoders: libx264 in the Docker image; Gallery Server's LGPL ffmpeg on Windows has OpenH264.
+      const video = WIN ? ['-c:v', 'libopenh264', '-b:v', '6M', '-maxrate', '10M', '-bufsize', '12M'] : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-profile:v', 'high'];
+      await runLow('ffmpeg', ['-v', 'error', '-y', '-i', path.join(LIBRARY_DIR, job.asset.file), '-map', '0:v:0', '-map', '0:a:0?',
+        '-vf', "scale='if(gt(iw,ih),min(1920,iw),-2)':'if(gt(iw,ih),-2,min(1920,ih))',format=yuv420p",
+        ...video, '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', '-f', 'mp4', tmp], { timeout: 60 * 60e3 });
+      fs.renameSync(tmp, out);
+    }
+  } catch (e) {
+    console.warn(`playback copy failed for ${job.asset.original_name}: ${e.message}`);
+    fs.rmSync(tmp, { force: true });
+  }
+  playJobs.delete(job.asset.id);
+  job.resolve();
+  playBusy = false;
+  pumpPlayback();
+}
+function makePlayback(asset, urgent = false) {
+  if (asset.type !== 'video' || fs.existsSync(playbackFile(asset))) return Promise.resolve();
+  let job = playJobs.get(asset.id);
+  if (!job) {
+    job = { asset };
+    job.done = new Promise(r => { job.resolve = r; });
+    playJobs.set(asset.id, job);
+    if (urgent) playQueue.unshift(job); else playQueue.push(job);
+  } else if (urgent) {
+    const i = playQueue.indexOf(job);
+    if (i > 0) { playQueue.splice(i, 1); playQueue.unshift(job); }
+  }
+  pumpPlayback();
+  return job.done;
 }
 
 function removeFiles(asset) {
   fs.rmSync(path.join(LIBRARY_DIR, asset.file), { force: true });
   fs.rmSync(path.join(THUMB_DIR, `${asset.id}.webp`), { force: true });
   fs.rmSync(path.join(PREVIEW_DIR, `${asset.id}.webp`), { force: true });
+  fs.rmSync(playbackFile(asset), { force: true });
 }
 
-module.exports = { ingest, isMedia, removeFiles, makeRenditions, mimeOf, sha1File };
+module.exports = { ingest, isMedia, removeFiles, makeRenditions, makePlayback, needsPlayback, playbackFile, mimeOf, sha1File };

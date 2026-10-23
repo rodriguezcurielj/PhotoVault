@@ -82,6 +82,7 @@ const src = p => SERVER + p + (token ? (p.includes('?') ? '&' : '?') + 'token=' 
 const thumb = a => src(`/api/assets/${a.id}/thumb?v=${a.updatedAt || 0}`);
 const preview = a => src(`/api/assets/${a.id}/preview`);
 const original = a => src(`/api/assets/${a.id}/original`);
+const playable = a => src(`/api/assets/${a.id}/play`);
 const fmtBytes = b => b > 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b > 1e6 ? (b / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1e3)) + ' KB';
 const fmtDur = s => { s = Math.round(s || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const place = a => [a.city, a.region, a.country].filter(Boolean).join(', ');
@@ -813,7 +814,7 @@ function show(i) {
   s.innerHTML = '';
   resetZoom();
   if (a.type === 'video') {
-    s.append(h('video', { src: original(a), controls: true, autoplay: true, playsinline: true, poster: preview(a) }));
+    s.append(h('video', { src: playable(a), controls: true, autoplay: true, playsinline: true, poster: preview(a) }));
   } else {
     const img = h('img', { src: preview(a), alt: '', draggable: 'false' });
     s.append(img);

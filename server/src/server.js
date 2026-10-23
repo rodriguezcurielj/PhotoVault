@@ -404,6 +404,19 @@ async function sendRendition(dir, req, res) {
 }
 app.get('/api/assets/:id/thumb', requireAuth, (req, res) => sendRendition(cfg.THUMB_DIR, req, res));
 app.get('/api/assets/:id/preview', requireAuth, (req, res) => sendRendition(cfg.PREVIEW_DIR, req, res));
+// What the website's video player loads: the H.264 copy when the original won't play in browsers.
+// If the copy isn't made yet, it's made now (the player waits) instead of showing a frozen picture.
+async function sendPlayable(a, res) {
+  const copy = media.playbackFile(a);
+  if (!fs.existsSync(copy) && await media.needsPlayback(a)) await media.makePlayback(a, true);
+  if (fs.existsSync(copy)) return res.sendFile(copy, { maxAge: '30d', headers: { 'Content-Type': 'video/mp4' } });
+  res.sendFile(path.join(cfg.LIBRARY_DIR, a.file), { maxAge: '30d', headers: { 'Content-Type': a.mime } });
+}
+app.get('/api/assets/:id/play', requireAuth, (req, res) => {
+  const a = getAsset(req.params.id);
+  if (!a) return res.status(404).end();
+  sendPlayable(a, res);
+});
 app.get('/api/assets/:id/original', requireAuth, (req, res) => {
   const a = getAsset(req.params.id);
   if (!a) return res.status(404).end();
@@ -621,6 +634,10 @@ for (const [kind, dir] of [['thumb', cfg.THUMB_DIR], ['preview', cfg.PREVIEW_DIR
     res.sendFile(fs.existsSync(f) ? f : path.join(cfg.LIBRARY_DIR, a.file), { maxAge: '1d' });
   });
 }
+app.get('/api/share/:token/play/:id', (req, res) => {
+  const a = sharedAsset(req, res);
+  if (a) sendPlayable(a, res);
+});
 app.get('/api/share/:token/original/:id', (req, res) => {
   const a = sharedAsset(req, res);
   if (!a) return;
@@ -634,6 +651,7 @@ app.get('/api/share/:token/original/:id', (req, res) => {
 async function fillRenditions() {
   for (const a of db.prepare('SELECT * FROM assets ORDER BY taken_at DESC').all()) {
     if (!fs.existsSync(path.join(cfg.THUMB_DIR, `${a.id}.webp`))) renderNow(a, false);
+    if (a.type === 'video') media.makePlayback(a);
   }
 }
 // Clear out abandoned partial uploads.
