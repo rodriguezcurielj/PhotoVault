@@ -105,7 +105,9 @@ func main() {
 		time.Sleep(5 * time.Second)
 	}
 
+	say("STEP signedin")
 	enableFunnel(lc)
+	say("STEP cert")
 	getCert(lc, dnsName)
 
 	l, err := listenFunnel(s)
@@ -118,9 +120,29 @@ func main() {
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		http.Error(w, "Gallery Server is starting. Try again in a moment.", http.StatusBadGateway)
 	}
-	say("URL https://%s", dnsName)
 	srv := &http.Server{Handler: proxy, ReadHeaderTimeout: 30 * time.Second}
-	fail(srv.Serve(l))
+	done := make(chan error, 1)
+	go func() { done <- srv.Serve(l) }()
+
+	// After every start, Tailscale's public relays take up to a minute or so to send traffic here.
+	// Only hand out the address once it answers from the internet, so phones never get "can't be found".
+	say("STEP publish")
+	waitReachable("https://" + dnsName + "/api/health")
+	say("URL https://%s", dnsName)
+	fail(<-done)
+}
+
+// waitReachable asks the public address (out through the internet and back in through Funnel) until it
+// answers. Gives up waiting after 3 minutes, in case this network can't reach itself that way.
+func waitReachable(u string) {
+	c := &http.Client{Timeout: 8 * time.Second}
+	for end := time.Now().Add(3 * time.Minute); time.Now().Before(end); {
+		if r, err := c.Get(u); err == nil {
+			r.Body.Close()
+			return
+		}
+		time.Sleep(3 * time.Second)
+	}
 }
 
 // The sign-in link also comes through the IPN bus (for example after the login expires).

@@ -12,6 +12,7 @@ namespace GalleryServer
         public static readonly string StateDir = Path.Combine(Settings.Dir, "tailscale");
 
         public event Action<string> Login, Enable, Ready, Error;   // each gets a URL (or a message for Error)
+        public event Action<string> Step;                          // "signedin", then "cert" (making the HTTPS certificate)
         public string Url { get; private set; }
         public bool Waiting { get; private set; }   // started, but no address yet
         public bool Interactive;                     // the person just clicked "Turn on", so open sign-in pages for them
@@ -29,7 +30,8 @@ namespace GalleryServer
             if (On) return;
             stopping = false;
             Waiting = true;
-            Launch();
+            // Off the window's thread: the first start of the exe can take seconds while antivirus checks it.
+            Task.Run(() => Launch());
         }
 
         // Starts it in the background before the person clicks, so the sign-in page opens right away.
@@ -73,6 +75,7 @@ namespace GalleryServer
             {
                 case "LOGIN": LoginUrl = rest; Login?.Invoke(rest); break;
                 case "ENABLE": Enable?.Invoke(rest); break;
+                case "STEP": if (!Preparing) Step?.Invoke(rest); break;
                 case "URL":
                     if (Preparing) { Stop(); break; }   // already signed in; wait for them to turn it on
                     Url = rest;

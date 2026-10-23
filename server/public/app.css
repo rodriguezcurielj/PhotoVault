@@ -285,3 +285,7 @@ h2.section { font-size: 20px; margin: 26px 0 10px; font-weight: 700; letter-spac
 .importstatus { font-weight: 600; }
 svg.ic.filled { fill: currentColor; }
 .toolbar > h2 { flex: 1; min-width: 0; }
+
+.appdl { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.appdl > div { flex: 1; min-width: 200px; }
+.appdl .btn { white-space: nowrap; }

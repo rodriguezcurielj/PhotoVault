@@ -125,11 +125,13 @@ namespace GalleryServer
         readonly Label reach = Ui.Text("");
         readonly Label others = Ui.Text("", null, Ui.Muted);
         readonly Label state = Ui.Text("", null, Ui.Muted);
+        readonly Label sleepWarning = Ui.Text("", null, Color.FromArgb(176, 96, 0));
         readonly FlowLayoutPanel remoteBox = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, BackColor = Color.FromArgb(242, 246, 255), Padding = new Padding(14, 12, 14, 12), Margin = new Padding(0, 4, 0, 10) };
         readonly Label remoteStatus = Ui.Text("", null, null, 430);
         readonly LinkLabel remoteLink = new LinkLabel { AutoSize = true, Margin = new Padding(0, 0, 0, 4), Visible = false };
         readonly FlowLayoutPanel choose = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = new Padding(0) };
         readonly LinkLabel turnOff = new LinkLabel { Text = "Turn off access from anywhere", AutoSize = true, Margin = new Padding(0, 0, 0, 8) };
+        readonly ProgressBar busy = new ProgressBar { Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30, Width = 430, Height = 6, Margin = new Padding(0, 2, 0, 10) };
         string pendingUrl, stepText;
 
         public ConnectForm(TunnelHost tunnel)
@@ -145,6 +147,7 @@ namespace GalleryServer
             col.Controls.Add(address);
             col.Controls.Add(reach);
             col.Controls.Add(others);
+            col.Controls.Add(sleepWarning);
 
             remoteBox.Controls.Add(Ui.Text("Use it on any network", Ui.Big, null, 430));
             remoteBox.Controls.Add(Ui.Text("Let your phone reach Gallery from anywhere: school or work Wi-Fi, cell data, or a trip. It's free and uses Tailscale, a secure connection service.", null, null, 430));
@@ -168,6 +171,7 @@ namespace GalleryServer
             choose.Controls.Add(hasOne);
             choose.Controls.Add(Ui.Text("You only need an account. You don't need to install the Tailscale app, on this PC or on your phone.", null, Ui.Muted, 430));
             remoteBox.Controls.Add(choose);
+            remoteBox.Controls.Add(busy);
             remoteBox.Controls.Add(remoteStatus);
             remoteLink.LinkClicked += (s, e) => { if (pendingUrl != null) Program.OpenUrl(pendingUrl); };
             remoteBox.Controls.Add(remoteLink);
@@ -194,6 +198,8 @@ namespace GalleryServer
             col.Controls.Add(row);
 
             Controls.Add(col);
+            // Draw in one go and keep the top edge still while parts show and hide, so nothing jumps around.
+            DoubleBuffered = true;
             AutoSize = true;
             AutoSizeMode = AutoSizeMode.GrowAndShrink;
             Fill();
@@ -202,7 +208,16 @@ namespace GalleryServer
         public void Fill()
         {
             if (IsDisposed) return;
-            var lan = Net.LanAddresses().Select(Net.ServerUrl).ToList();
+            SuspendLayout();
+            try { FillNow(); } finally { ResumeLayout(true); }
+            // An auto-sized form grows but doesn't always shrink when parts hide; make it fit again.
+            AutoSize = false;
+            AutoSize = true;
+        }
+
+        void FillNow()
+        {
+            var lan = Net.Addresses().Select(Net.ServerUrl).ToList();
             var remote = tunnel.Url;
             string url;
             if (remote != null)
@@ -220,19 +235,49 @@ namespace GalleryServer
                 others.Text = lan.Count > 1 ? "If that doesn't work, try: " + string.Join(", ", lan.Skip(1)) : "";
             }
             others.Visible = others.Text.Length > 0;
+            var warn = Power.Warning();
+            sleepWarning.Text = warn == null ? "" : "⚠ " + warn;
+            sleepWarning.Visible = warn != null;
             address.Text = url ?? "";
             remoteBox.Visible = remote == null;
             bool started = tunnel.On && !tunnel.Preparing;
             choose.Visible = !started;
             remoteStatus.Visible = started;
             remoteLink.Visible = started && pendingUrl != null;
+            busy.Visible = started;
             turnOff.Visible = started;
+            // Only redraw the code when the address changes.
+            if (url == qrUrl) return;
+            qrUrl = url;
             qr.Image = null;
             if (url == null) return;
             using (var gen = new QRCodeGenerator())
             using (var data = gen.CreateQrCode(url, QRCodeGenerator.ECCLevel.M))
             using (var code = new QRCode(data))
                 qr.Image = code.GetGraphic(10, Color.Black, Color.White, true);
+        }
+        string qrUrl = "";
+
+        // What the tunnel is doing after the person signed in.
+        public void ShowProgress(string step)
+        {
+            if (IsDisposed) return;
+            switch (step)
+            {
+                case "signedin":
+                    ShowStep("✓ Signed in to Tailscale.\nSetting up your address…");
+                    break;
+                case "cert":
+                    ShowStep("✓ Signed in to Tailscale.\nMaking your secure https address. The first time, this takes about a minute. " +
+                             "You can close this window; it keeps going and tells you when it's ready.");
+                    break;
+                case "publish":
+                    ShowStep("✓ Signed in to Tailscale.\n✓ Secure address made.\nAlmost ready: putting your address online. This can take up to a minute.");
+                    break;
+                case "certerror":
+                    ShowStep("✓ Signed in to Tailscale.\nStill making your secure address. Tailscale is slow right now, so it will keep trying.");
+                    break;
+            }
         }
 
         void TurnOn(string howTo)
@@ -247,7 +292,7 @@ namespace GalleryServer
                 Program.OpenUrl(ready);   // already waiting, opens right away
                 ShowStep(null, ready);
             }
-            else ShowStep("Opening Tailscale in your browser…");
+            else ShowStep("Connecting…");   // the sign-in steps show when Tailscale sends the page (or it's done if already signed in)
             Fill();
         }
 
@@ -255,10 +300,12 @@ namespace GalleryServer
         public void ShowStep(string text, string link = null)
         {
             if (IsDisposed) return;
+            SuspendLayout();
             remoteStatus.Text = text ?? stepText ?? "Sign in to Tailscale in your browser to finish.";
-            pendingUrl = link;
-            remoteLink.Text = link == null ? "" : "Browser didn't open? Click here";
-            remoteLink.Visible = link != null;
+            if (link != null || text != null) pendingUrl = link;
+            remoteLink.Text = pendingUrl == null ? "" : "Browser didn't open? Click here";
+            remoteLink.Visible = pendingUrl != null && tunnel.On && !tunnel.Preparing;
+            ResumeLayout(true);
         }
 
         public void SetRunning(bool ok)

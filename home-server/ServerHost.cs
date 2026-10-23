@@ -77,6 +77,7 @@ namespace GalleryServer
             proc.Exited += (s, e) =>
             {
                 Log($"--- server stopped (exit code {SafeExitCode()})");
+                failures = 3;
                 SetRunning(false);
                 if (!stopping) RetryLater();
             };
@@ -86,13 +87,16 @@ namespace GalleryServer
 
         void RetryLater() => Task.Delay(5000).ContinueWith(_ => { if (!stopping) Launch(); });
 
-        static readonly HttpClient http = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
+        static readonly HttpClient http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+        int failures;
         async void CheckHealth()
         {
             bool ok;
             try { ok = (await http.GetAsync($"http://127.0.0.1:{Settings.Port}/api/health")).IsSuccessStatusCode; }
             catch { ok = false; }
-            SetRunning(ok);
+            // A busy server (making thumbnails) can miss one check; only say it's down after three in a row.
+            failures = ok ? 0 : failures + 1;
+            if (ok || failures >= 3) SetRunning(ok);
         }
 
         void SetRunning(bool ok)

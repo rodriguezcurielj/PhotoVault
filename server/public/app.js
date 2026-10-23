@@ -200,7 +200,7 @@ function route() {
     videos: () => viewSimple('Videos', 'videos', 'Videos you upload show up here.'),
     archive: () => viewSimple('Archive', 'archive', 'Archived photos are hidden from Photos but stay in albums and search.'),
     trash: viewTrash, albums: viewAlbums, album: () => viewAlbum(Number(arg)), explore: viewExplore,
-    search: () => viewSearch(arg), place: () => viewSearch(arg, true), map: viewMap, locked: viewLocked, links: viewLinks, import: viewImport, profile: viewProfile,
+    apps: () => { viewPhotos(); showApps(); }, search: () => viewSearch(arg), place: () => viewSearch(arg, true), map: viewMap, locked: viewLocked, links: viewLinks, import: viewImport, profile: viewProfile,
   }[view] || viewPhotos)();
   if (view === 'albums' || view === 'album') renderNavAlbums();
 }
@@ -1255,7 +1255,7 @@ async function viewProfile() {
     row('Space used', st.freeBytes ? `${fmtBytes(st.freeBytes)} free on the server` : null, h('span', { class: 'muted' }, fmtBytes(st.bytes || 0)))));
 
   page.append(h('div', { class: 'panelhead' }, ''), h('div', { class: 'panel' },
-    row('Get the app', 'Windows, Mac, Android', null, () => $('getAppBtn') ? $('getAppBtn').click() : toast('You’re using the app')),
+    row('Get the apps', 'Android, Windows, Gallery Server', null, showApps),
     h('div', { class: 'prow click', onclick: () => $('logoutBtn').click() }, h('div', { class: 'lbl', style: 'color:var(--danger)' }, 'Sign Out'))));
 }
 
@@ -1277,19 +1277,28 @@ api('/api/status').then(s => (s.authed ? start() : showAuth(!s.setup))).catch(()
 let installPrompt = null;
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; });
 const standalone = matchMedia('(display-mode: standalone)').matches;
-if (standalone) $('getAppBtn').remove();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-$('getAppBtn') && ($('getAppBtn').onclick = () => {
+// Every download, reachable from the sign-in screen, the sidebar, the profile menu, Settings and #apps.
+const DL = 'https://github.com/rodriguezcurielj/Pepes-Apps/releases/download/downloads/';
+function showApps() {
+  $('profileMenu').classList.add('hidden');
+  $('nav').classList.remove('open');
   const edge = /Edg\//.test(navigator.userAgent);
-  modal(h('h3', {}, 'Get the Gallery app'),
-    h('div', {}, h('b', {}, 'Windows / Mac / Chromebook'), h('div', { class: 'muted' },
-      installPrompt ? 'Installs Gallery as an app with its own window, Start menu and taskbar icon.'
+  const item = (title, text, file, label) => h('div', { class: 'appdl' },
+    h('div', {}, h('b', {}, title), h('div', { class: 'muted' }, text)),
+    h('a', { class: 'btn', href: DL + file, download: '' }, label));
+  modal(h('h3', {}, 'Get the Gallery apps'),
+    item('Android', 'The Gallery app for your phone: backs up your photos and shows your whole library. Open the APK on your phone to install it. Later updates are in Settings → Update app.', 'Gallery.apk', 'Android APK'),
+    item('Gallery Server for Windows', 'Host your own Gallery on your PC. Your photos stay on your computer, and your phone backs up to it at home or from anywhere. Install it, pick a folder for your photos, then scan the QR code with the phone app.', 'Gallery-Server-Setup.exe', 'Download server'),
+    item('Gallery uploader for Windows', 'Send thousands of photos and videos at once. Drop folders on it. It skips ones already uploaded and sorts them by date.', 'Gallery-Windows.exe', 'Download uploader'),
+    standalone ? null : h('div', {}, h('b', {}, 'This website as an app'), h('div', { class: 'muted' },
+      installPrompt ? 'Gives Gallery its own window, Start menu and taskbar icon on Windows, Mac or Chromebook.'
         : `In ${edge ? 'Edge' : 'Chrome or Edge'}, click the install icon at the right end of the address bar (or ⋯ → ${edge ? 'Apps → Install Gallery' : 'Cast, save and share → Install page as app'}).`)),
-    h('div', {}, h('b', {}, 'Windows uploader'), h('div', { class: 'muted' }, 'A Windows app for sending thousands of photos and videos at once: drop folders on it, it skips ones already here and places them by date. '),
-      h('a', { class: 'link', href: 'https://github.com/rodriguezcurielj/Pepes-Apps/releases/download/downloads/Gallery-Windows.exe' }, 'Download Gallery for Windows')),
-    h('div', {}, h('b', {}, 'Android'), h('div', { class: 'muted' }, 'Download the APK on your phone and open it. After that, use Settings → Update app inside the app.')),
     h('div', { class: 'actions' },
       h('button', { onclick: closeModal }, 'Close'),
-      h('a', { class: 'btn', href: (SERVER || '.') + '/PhotoVault.apk', download: 'Gallery.apk' }, 'Android APK'),
-      installPrompt ? h('button', { class: 'primary', onclick: async () => { closeModal(); installPrompt.prompt(); const r = await installPrompt.userChoice; if (r.outcome === 'accepted') { installPrompt = null; $('getAppBtn')?.remove(); } } }, 'Install on this computer') : null));
-});
+      installPrompt && !standalone ? h('button', { class: 'primary', onclick: async () => { closeModal(); installPrompt.prompt(); const r = await installPrompt.userChoice; if (r.outcome === 'accepted') installPrompt = null; } }, 'Install this website') : null));
+}
+$('getAppBtn').onclick = showApps;
+$('navApps').onclick = showApps;
+$('authAppsLink').onclick = showApps;
+if (location.hash === '#apps') showApps();

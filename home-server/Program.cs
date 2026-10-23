@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
@@ -104,8 +105,11 @@ namespace GalleryServer
             var startup = new ToolStripMenuItem("Start with Windows") { Checked = Startup.Enabled, CheckOnClick = true };
             startup.CheckedChanged += (s, e) => Startup.Enabled = startup.Checked;
             menu.Items.Add(startup);
-            awake = new ToolStripMenuItem("Keep this PC awake") { Checked = Settings.KeepAwake, CheckOnClick = true, ToolTipText = "Stops the PC from going to sleep on its own, so your phone can always back up." };
-            awake.CheckedChanged += (s, e) => { Settings.KeepAwake = awake.Checked; ApplyKeepAwake(); };
+            awake = new ToolStripMenuItem("Keep this PC awake") { Checked = Settings.KeepAwake, CheckOnClick = true,
+                ToolTipText = Power.ModernStandby
+                    ? "While plugged in, this PC (and its screen) won't go to sleep on its own, so your phone can always reach Gallery. On battery it sleeps as usual."
+                    : "While plugged in, this PC won't go to sleep on its own, so your phone can always reach Gallery." };
+            awake.CheckedChanged += (s, e) => { Settings.KeepAwake = awake.Checked; Power.Apply(); connect?.Fill(); };
             menu.Items.Add(awake);
             menu.Items.Add("Restart server", null, (s, e) => host.Restart());
             menu.Items.Add("Show log", null, (s, e) => { if (File.Exists(ServerHost.LogFile)) Process.Start("notepad.exe", $"\"{ServerHost.LogFile}\""); });
@@ -117,7 +121,11 @@ namespace GalleryServer
 
             host.StateChanged += ok => ui.BeginInvoke((Action)(() => OnState(ok)));
             host.Start();
-            ApplyKeepAwake();
+            Power.Init(ui);
+            Power.Changed += () => connect?.Fill();
+            Net.Watch();
+            Task.Run(() => Net.Addresses());   // look it up now, so the Connect window opens without waiting
+            Net.Changed += () => ui.BeginInvoke((Action)(() => connect?.Fill()));
             WireTunnel();
             if (Settings.Remote) tunnel.Start();
 
@@ -169,8 +177,9 @@ namespace GalleryServer
                 if (tunnel.Interactive) Program.OpenUrl(url);
                 else { balloonUrl = url; tray.ShowBalloonTip(15000, "Gallery Server needs one click", "Turn on Tailscale Funnel so your phone can reach Gallery from anywhere. Click here.", ToolTipIcon.Warning); }
             }));
+            tunnel.Step += step => ui.BeginInvoke((Action)(() => connect?.ShowProgress(step)));
             tunnel.Ready += url => ui.BeginInvoke((Action)(() =>
-            {                connect?.ShowStep("");
+            {
                 connect?.Fill();
                 if (tunnel.Interactive)
                 {
@@ -179,7 +188,8 @@ namespace GalleryServer
                 }
                 tunnel.Interactive = false;
             }));
-            tunnel.Error += msg => ui.BeginInvoke((Action)(() => { if (tunnel.Waiting && !tunnel.Preparing) connect?.ShowStep("Still connecting… (" + msg + ")"); }));
+            // Errors usually fix themselves (the tunnel retries); only a certificate problem needs the person.
+            tunnel.Error += msg => ui.BeginInvoke((Action)(() => { if (tunnel.Waiting && !tunnel.Preparing && msg.StartsWith("certificate")) connect?.ShowProgress("certerror"); }));
         }
 
         void ShowConnect()
@@ -195,8 +205,6 @@ namespace GalleryServer
             connect.Activate();
         }
 
-        void ApplyKeepAwake() =>
-            SetThreadExecutionState(Settings.KeepAwake ? 0x80000001u /* CONTINUOUS | SYSTEM_REQUIRED */ : 0x80000000u);
 
         void Quit()
         {
@@ -214,6 +222,5 @@ namespace GalleryServer
             base.Dispose(disposing);
         }
 
-        [DllImport("kernel32.dll")] static extern uint SetThreadExecutionState(uint flags);
     }
 }
